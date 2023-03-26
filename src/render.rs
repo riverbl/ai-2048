@@ -111,12 +111,6 @@ pub fn setup_terminal(fd: &impl AsRawFd) -> io::Result<()> {
         termios.assume_init()
     };
 
-    // let c_oflag = termios.c_oflag;
-
-    // unsafe {
-    //     libc::cfmakeraw(&mut termios);
-    // }
-
     termios.c_lflag &= !(libc::ECHO | libc::ICANON);
 
     unsafe {
