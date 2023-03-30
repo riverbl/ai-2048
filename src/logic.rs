@@ -1,4 +1,11 @@
+use std::num::NonZeroU64;
+
 use rand::Rng;
+
+use crate::direction::Direction;
+
+const MOVE_FUNCTIONS: [fn(u64) -> Option<(NonZeroU64, u32)>; 4] =
+    [try_move_up, try_move_down, try_move_right, try_move_left];
 
 pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
     let mut slots: u64 = 0;
@@ -22,7 +29,7 @@ pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
     }
 }
 
-pub fn try_move_left(board: u64) -> Option<(u64, u32)> {
+pub fn try_move_left(board: u64) -> Option<(NonZeroU64, u32)> {
     let mut new_board = 0;
     let mut score = 0;
 
@@ -68,10 +75,13 @@ pub fn try_move_left(board: u64) -> Option<(u64, u32)> {
         new_board |= u64::from(row) << (i * 16);
     }
 
-    (new_board != board).then_some((new_board, score))
+    (new_board != board)
+        .then_some(NonZeroU64::new(new_board))
+        .flatten()
+        .map(|new_board| (new_board, score))
 }
 
-pub fn try_move_right(board: u64) -> Option<(u64, u32)> {
+pub fn try_move_right(board: u64) -> Option<(NonZeroU64, u32)> {
     let mut new_board = 0;
     let mut score = 0;
 
@@ -117,10 +127,13 @@ pub fn try_move_right(board: u64) -> Option<(u64, u32)> {
         new_board |= u64::from(row) << (i * 16);
     }
 
-    (new_board != board).then_some((new_board, score))
+    (new_board != board)
+        .then_some(NonZeroU64::new(new_board))
+        .flatten()
+        .map(|new_board| (new_board, score))
 }
 
-pub fn try_move_up(board: u64) -> Option<(u64, u32)> {
+pub fn try_move_up(board: u64) -> Option<(NonZeroU64, u32)> {
     let mut new_board = 0;
     let mut score = 0;
 
@@ -166,10 +179,13 @@ pub fn try_move_up(board: u64) -> Option<(u64, u32)> {
         new_board |= column << (i * 4);
     }
 
-    (new_board != board).then_some((new_board, score))
+    (new_board != board)
+        .then_some(NonZeroU64::new(new_board))
+        .flatten()
+        .map(|new_board| (new_board, score))
 }
 
-pub fn try_move_down(board: u64) -> Option<(u64, u32)> {
+pub fn try_move_down(board: u64) -> Option<(NonZeroU64, u32)> {
     let mut new_board = 0;
     let mut score = 0;
 
@@ -218,9 +234,16 @@ pub fn try_move_down(board: u64) -> Option<(u64, u32)> {
         new_board |= column >> (i * 4);
     }
 
-    (new_board != board).then_some((new_board, score))
+    (new_board != board)
+        .then_some(NonZeroU64::new(new_board))
+        .flatten()
+        .map(|new_board| (new_board, score))
 }
 
-pub fn try_all_moves(board: u64) -> [Option<(u64, u32)>; 4] {
-    [try_move_up, try_move_down, try_move_right, try_move_left].map(|try_move| try_move(board))
+pub fn try_all_moves(board: u64) -> [Option<(NonZeroU64, u32)>; 4] {
+    MOVE_FUNCTIONS.map(|try_move| try_move(board))
+}
+
+pub fn try_move(board: u64, direction: Direction) -> Option<(NonZeroU64, u32)> {
+    MOVE_FUNCTIONS[direction as usize](board)
 }
