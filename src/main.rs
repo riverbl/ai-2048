@@ -2,6 +2,7 @@
     int_roundings,
     maybe_uninit_slice,
     maybe_uninit_uninit_array,
+    trusted_len,
     write_all_vectored
 )]
 
@@ -16,9 +17,9 @@ use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 mod ai;
+mod control_flow_helper;
 mod direction;
 mod logic;
-mod old_ai;
 mod render;
 
 fn play_interactive(
@@ -48,8 +49,10 @@ fn play_interactive(
             .find_iter(&buf[..buf_len])
             .map(|m| m.pattern())
         {
-            if let Some((new_board, move_score)) = move_boards[key] {
-                let new_board = logic::spawn_square(rng, new_board.get());
+            if let Some(new_board) = move_boards[key] {
+                let new_board = new_board.get();
+                let move_score = logic::eval_score(new_board) - logic::eval_score(board);
+                let new_board = logic::spawn_square(rng, new_board);
 
                 render::redraw_board(out, board, new_board, score, score + move_score)?;
 
@@ -93,44 +96,11 @@ fn play_ai(
     let mut ai = ai::Ai::new(ChaCha8Rng::from_entropy(), depth, iterations);
 
     while move_boards.iter().any(Option::is_some) {
-        let direction = ai.get_next_move(board).unwrap();
+        let direction = ai.get_next_move_expectimax(board).unwrap();
 
-        let (new_board, move_score) = move_boards[direction as usize].unwrap();
-        let new_board = logic::spawn_square(rng, new_board.get());
-
-        render::redraw_board(out, board, new_board, score, score + move_score)?;
-
-        board = new_board;
-        score += move_score;
-
-        move_boards = logic::try_all_moves(board);
-    }
-
-    out.write_all(b"Game over\n")
-}
-
-fn play_old_ai(
-    out: &mut (impl AsRawFd + Write),
-    rng: &mut impl Rng,
-    depth: u32,
-    iterations: u32,
-) -> io::Result<()> {
-    let mut board = logic::spawn_square(rng, 0);
-    let mut score = 0;
-
-    render::setup_terminal(out)?;
-    render::draw_board(out, board, score)?;
-
-    let mut move_boards = logic::try_all_moves(board);
-
-    let mut ai = old_ai::Ai::new(ChaCha8Rng::from_entropy(), depth, iterations);
-
-    while move_boards.iter().any(Option::is_some) {
-        let direction = ai.get_next_move(board).unwrap();
-
-        let (new_board, move_score) =
-            move_boards[direction as usize].unwrap_or_else(|| panic!("{board}, {direction:?}"));
-        let new_board = logic::spawn_square(rng, new_board.get());
+        let new_board = move_boards[direction as usize].unwrap().get();
+        let move_score = logic::eval_score(new_board) - logic::eval_score(board);
+        let new_board = logic::spawn_square(rng, new_board);
 
         render::redraw_board(out, board, new_board, score, score + move_score)?;
 
@@ -153,10 +123,11 @@ fn play_random(out: &mut (impl AsRawFd + Write), rng: &mut impl Rng) -> io::Resu
     let mut move_boards = logic::try_all_moves(board);
 
     while move_boards.iter().any(Option::is_some) {
-        let direction = ai::get_next_move_random(rng, board).unwrap();
+        let direction = logic::get_next_move_random(rng, board).unwrap();
 
-        let (new_board, move_score) = move_boards[direction as usize].unwrap();
-        let new_board = logic::spawn_square(rng, new_board.get());
+        let new_board = move_boards[direction as usize].unwrap().get();
+        let move_score = logic::eval_score(new_board) - logic::eval_score(board);
+        let new_board = logic::spawn_square(rng, new_board);
 
         render::redraw_board(out, board, new_board, score, score + move_score)?;
 
@@ -173,7 +144,6 @@ fn main() -> io::Result<()> {
     enum Mode {
         Interactive,
         Ai(u32, u32),
-        OldAi(u32, u32),
         Random,
     }
 
@@ -221,17 +191,6 @@ fn main() -> io::Result<()> {
 
             Mode::Ai(depth, iterations)
         }
-        [arg, depth_str, iterations_str] if arg == "-o" => {
-            let Ok(depth) = depth_str.parse::<u32>() else {
-                return writeln!(stdout, "Invalid depth {depth_str}");
-            };
-
-            let Ok(iterations) = iterations_str.parse::<u32>() else {
-                return writeln!(stdout, "Invalid iterations {iterations_str}");
-            };
-
-            Mode::OldAi(depth, iterations)
-        }
         [arg] if arg == "-r" => Mode::Random,
         _ => return writeln!(stdout, "Invalid arguments"),
     };
@@ -241,7 +200,6 @@ fn main() -> io::Result<()> {
     match mode {
         Mode::Interactive => play_interactive(&mut stdout, &mut stdin, &mut rng),
         Mode::Ai(depth, iterations) => play_ai(&mut stdout, &mut rng, depth, iterations),
-        Mode::OldAi(depth, iterations) => play_old_ai(&mut stdout, &mut rng, depth, iterations),
         Mode::Random => play_random(&mut stdout, &mut rng),
     }
 }

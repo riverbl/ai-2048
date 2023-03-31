@@ -1,10 +1,14 @@
-use std::{iter::FusedIterator, mem::MaybeUninit, num::NonZeroU64, ops::ControlFlow};
+use std::{
+    collections::HashMap,
+    hash::Hash,
+    iter::{FusedIterator, TrustedLen},
+    mem::MaybeUninit,
+    ops::ControlFlow,
+};
 
 use rand::Rng;
 
-use crate::{direction::Direction, logic};
-
-static mut SCORES: &[u32] = &[];
+use crate::{control_flow_helper::ControlFlowHelper, direction::Direction, logic};
 
 struct OpponentMoves {
     board: u64,
@@ -56,13 +60,15 @@ impl ExactSizeIterator for OpponentMoves {
     }
 }
 
+unsafe impl TrustedLen for OpponentMoves {}
+
 impl FusedIterator for OpponentMoves {}
 
 pub struct Ai<R> {
     rng: R,
     depth: u32,
     iterations: u32,
-    move_table: Vec<u16>,
+    transposition_table: HashMap<u64, f64>,
 }
 
 impl<R> Ai<R>
@@ -70,64 +76,57 @@ where
     R: Rng,
 {
     pub fn new(rng: R, depth: u32, iterations: u32) -> Self {
-        let scores = (0..u8::MAX)
-            .map(|cell_pair| {
-                (0..2).fold(0, |score, i| {
-                    let exponent = u32::from(cell_pair >> (i * 4)) & 0xf;
-
-                    score
-                        + if exponent != 0 {
-                            (exponent - 1) * (1 << exponent)
-                        } else {
-                            0
-                        }
-                })
-            })
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
-
-        unsafe {
-            SCORES = Box::leak(scores);
-        }
-
-        let move_table = (0..u16::MAX).map(Self::move_row).collect();
-
-        let ai = Self {
+        Self {
             rng,
             depth,
             iterations,
-            move_table,
-        };
+            transposition_table: HashMap::new(),
+        }
+    }
 
-        let rows = (0..u64::from(u16::MAX)).filter(|row| {
-            !(0..4)
-                .map(|i| (row >> (i * 4)) & 0xf)
-                .any(|cell| cell == 0xf)
+    fn expectimax_opponent_move(rng: &mut R, iterations: u32, board: u64, depth: u32) -> f64 {
+        let moves = OpponentMoves::new(board);
+
+        let (count, total_score) = moves.fold((0, 0.0), |(count, total_score), board| {
+            let score = Self::expectimax_player_move(rng, iterations, board, depth)
+                .map_or(0.0, |(score, _)| score);
+
+            (count + 1, total_score + score)
         });
 
-        for row in rows {
-            let board = (0..4).fold(0, |board, i| {
-                let cell = (row >> (i * 4)) & 0xf;
+        total_score / (count as f64)
+    }
 
-                board | (cell << (i * 16))
-            });
+    fn expectimax_player_move(
+        rng: &mut R,
+        iterations: u32,
+        board: u64,
+        depth: u32,
+    ) -> Option<(f64, Direction)> {
+        let mut moves_array = MaybeUninit::uninit_array::<4>();
+        let count = logic::get_all_moves(&mut moves_array, board);
 
-            for i in 0..4 {
-                let board = board << (i * 4);
+        let player_moves =
+            unsafe { MaybeUninit::slice_assume_init_mut(&mut moves_array[0..count]) }.iter();
 
-                if ai.try_move(board, Direction::Down)
-                    != logic::try_move_down(board).map(|(board, _)| board)
-                {
-                    panic!("{board}")
-                }
-            }
+        if let Some(depth) = depth.checked_sub(1) {
+            player_moves
+                .map(|&(board, direction)| {
+                    let score = Self::expectimax_opponent_move(rng, iterations, board, depth);
+
+                    (score, direction)
+                })
+                .max_by(|&(score1, _), &(score2, _)| score1.total_cmp(&score2))
+        } else {
+            player_moves
+                .map(|&(board, direction)| (logic::eval_score(board) as f64, direction))
+                .max_by(|&(score1, _), &(score2, _)| score1.total_cmp(&score2))
         }
-
-        ai
     }
 
     fn minimax_opponent_move(
-        &mut self,
+        rng: &mut R,
+        iterations: u32,
         board: u64,
         depth: u32,
         prune_min: u32,
@@ -136,56 +135,51 @@ where
         let mut moves = OpponentMoves::new(board);
 
         let first_score = moves.next().map_or(0, |board| {
-            self.minimax_player_move(board, depth, prune_min, prune_max)
+            Self::minimax_player_move(rng, iterations, board, depth, prune_min, prune_max)
                 .map_or(0, |(new_score, _)| new_score)
         });
 
         if first_score <= prune_min || first_score == 0 {
             first_score
         } else {
-            let best = moves.try_fold(first_score, |min_score, board| {
-                let new_score = self
-                    .minimax_player_move(board, depth, prune_min, min_score)
+            moves
+                .try_fold(first_score, |min_score, board| {
+                    let new_score = Self::minimax_player_move(
+                        rng, iterations, board, depth, prune_min, min_score,
+                    )
                     .map_or(0, |(score, _)| score);
 
-                if new_score <= prune_min {
-                    ControlFlow::Break(new_score)
-                } else if new_score < min_score {
-                    ControlFlow::Continue(new_score)
-                } else {
-                    ControlFlow::Continue(min_score)
-                }
-            });
-
-            match best {
-                ControlFlow::Break(best) | ControlFlow::Continue(best) => best,
-            }
+                    if new_score <= prune_min {
+                        ControlFlow::Break(new_score)
+                    } else if new_score < min_score {
+                        ControlFlow::Continue(new_score)
+                    } else {
+                        ControlFlow::Continue(min_score)
+                    }
+                })
+                .into_inner()
         }
-
-        // moves
-        //     .map(|board| {
-        //         best_player_move(board, depth).map_or((board, 0), |(board, score, _)| (board, score))
-        //     })
-        //     .min_by_key(|&(_, score)| score)
-        //     .unwrap_or((board, 0))
     }
 
     fn minimax_player_move(
-        &mut self,
+        rng: &mut R,
+        iterations: u32,
         board: u64,
         depth: u32,
         prune_min: u32,
         prune_max: u32,
     ) -> Option<(u32, Direction)> {
         let mut moves_array = MaybeUninit::uninit_array::<4>();
-        let count = self.get_all_moves(&mut moves_array, board);
+        let count = logic::get_all_moves(&mut moves_array, board);
 
         let mut player_moves =
             unsafe { MaybeUninit::slice_assume_init_mut(&mut moves_array[0..count]) }.iter();
 
         if let Some(depth) = depth.checked_sub(1) {
             let maybe_first_move_result = player_moves.next().map(|&(board, direction)| {
-                let new_score = self.minimax_opponent_move(board, depth, prune_min, prune_max);
+                let new_score = Self::minimax_opponent_move(
+                    rng, iterations, board, depth, prune_min, prune_max,
+                );
                 (new_score, direction)
             });
 
@@ -193,273 +187,124 @@ where
                 if first_score >= prune_max {
                     (first_score, first_direction)
                 } else {
-                    let best = player_moves.try_fold(
-                        (first_score, first_direction),
-                        |(max_score, best_direction), &(board, direction)| {
-                            let new_score =
-                                self.minimax_opponent_move(board, depth, max_score, prune_max);
+                    player_moves
+                        .try_fold(
+                            (first_score, first_direction),
+                            |(max_score, best_direction), &(board, direction)| {
+                                let new_score = Self::minimax_opponent_move(
+                                    rng, iterations, board, depth, max_score, prune_max,
+                                );
 
-                            if new_score >= prune_max {
-                                ControlFlow::Break((new_score, direction))
-                            } else if new_score > max_score {
-                                ControlFlow::Continue((new_score, direction))
-                            } else {
-                                ControlFlow::Continue((max_score, best_direction))
-                            }
-                        },
-                    );
-
-                    match best {
-                        ControlFlow::Break(best) | ControlFlow::Continue(best) => best,
-                    }
+                                if new_score >= prune_max {
+                                    ControlFlow::Break((new_score, direction))
+                                } else if new_score > max_score {
+                                    ControlFlow::Continue((new_score, direction))
+                                } else {
+                                    ControlFlow::Continue((max_score, best_direction))
+                                }
+                            },
+                        )
+                        .into_inner()
                 }
             })
         } else {
             player_moves
-                .map(|&(board, direction)| (Self::eval_score(board), direction))
+                .map(|&(board, direction)| (logic::eval_score(board), direction))
                 .max_by_key(|&(score, _)| score)
         }
-
-        // if let Some(depth) = depth.checked_sub(1) {
-        //     player_moves
-        //         .map(|(board, score, direction)| {
-        //             let (new_board, additional_score) = best_opponent_move(board, depth);
-        //             (new_board, score + additional_score, direction)
-        //         })
-        //         .max_by_key(|&(_, score, _)| score)
-        // } else {
-        //     player_moves.max_by_key(|&(_, score, _)| score)
-        // }
     }
 
-    pub fn get_next_move(&mut self, board: u64) -> Option<Direction> {
-        self.minimax_player_move(board, self.depth, 0, u32::MAX)
+    pub fn get_next_move_minimax(&mut self, board: u64) -> Option<Direction> {
+        Self::minimax_player_move(
+            &mut self.rng,
+            self.iterations,
+            board,
+            self.depth,
+            0,
+            u32::MAX,
+        )
+        .map(|(_, direction)| direction)
+    }
+
+    pub fn get_next_move_expectimax(&mut self, board: u64) -> Option<Direction> {
+        Self::expectimax_player_move(&mut self.rng, self.iterations, board, self.depth)
             .map(|(_, direction)| direction)
     }
 
-    pub fn eval_score(board: u64) -> u32 {
-        // const SCORES2: [u32; 16] = [
-        //     0, 0, 4, 16, 48, 128, 320, 768, 1792, 4096, 9216, 20480, 45056, 98304, 212992, 458752,
-        // ];
-
-        let scores1 = (0..8).fold(0, |score, i| {
-            let cell = ((board >> (i * 8)) & 0xff) as usize;
-
-            score + unsafe { SCORES.get_unchecked(cell) }
-        });
-
-        // let scores2 = (0..16).fold(0, |score, i| {
-        //     let cell = ((board >> (i * 4)) & 0xf) as usize;
-
-        //     score + SCORES2[cell]
-        // });
-
-        // let scores3 = (0..16).fold(0, |score, i| {
-        //     let exponent = ((board >> (i * 4)) & 0xf) as u32;
-
-        //     score
-        //         + if exponent != 0 {
-        //             (exponent - 1) * (1 << exponent)
-        //         } else {
-        //             0
-        //         }
-        // });
-
-        // if scores1 != scores2 || scores1 != scores3 {
-        //     panic!("{board}, {scores1}, {scores2}, {scores3}")
-        // }
-
-        scores1
-    }
-
-    pub fn eval_monte_carlo(&mut self, board: u64) -> u32 {
-        let score_sum: f64 = (0..(self.iterations))
+    fn eval_monte_carlo(rng: &mut R, iterations: u32, board: u64) -> u32 {
+        let score_sum: f64 = (0..iterations)
             .map(|_| {
-                let final_board = (0..).try_fold(board, |board, _| {
-                    let board = logic::spawn_square(&mut self.rng, board);
+                let final_board = (0..)
+                    .try_fold(board, |board, _| {
+                        let board = logic::spawn_square(rng, board);
 
-                    let new_boards_iter =
-                        Direction::iter().filter_map(|direction| self.try_move(board, direction));
+                        let new_boards_iter = Direction::iter()
+                            .filter_map(|direction| logic::try_move(board, direction));
 
-                    let mut new_boards = MaybeUninit::uninit_array::<4>();
-                    let mut count = 0;
+                        let mut new_boards = MaybeUninit::uninit_array::<4>();
+                        let mut count = 0;
 
-                    for new_board in new_boards_iter {
-                        new_boards[count] = MaybeUninit::new(new_board.get());
-                        count += 1;
-                    }
+                        for new_board in new_boards_iter {
+                            new_boards[count] = MaybeUninit::new(new_board.get());
+                            count += 1;
+                        }
 
-                    let new_boards =
-                        unsafe { MaybeUninit::slice_assume_init_ref(&new_boards[0..count]) };
+                        let new_boards =
+                            unsafe { MaybeUninit::slice_assume_init_ref(&new_boards[0..count]) };
 
-                    if count > 0 {
-                        let i = self.rng.gen_range(0..count);
+                        if count > 0 {
+                            let i = rng.gen_range(0..count);
 
-                        ControlFlow::Continue(new_boards[i])
-                    } else {
-                        ControlFlow::Break(board)
-                    }
-                });
+                            ControlFlow::Continue(new_boards[i])
+                        } else {
+                            ControlFlow::Break(board)
+                        }
+                    })
+                    .into_inner();
 
-                let final_board = match final_board {
-                    ControlFlow::Break(board) | ControlFlow::Continue(board) => board,
-                };
-
-                Self::eval_score(final_board) as f64
+                logic::eval_score(final_board) as f64
             })
             .sum();
 
-        (score_sum / self.iterations as f64) as u32
+        (score_sum / iterations as f64) as u32
     }
 
-    fn move_row(mut row: u16) -> u16 {
-        let shift = row.trailing_zeros() & !0x3;
+    fn eval_monte_carlo2(rng: &mut R, iterations: u32, board: u64) -> u32 {
+        let score_sum: f64 = (0..iterations)
+            .map(|_| {
+                let final_board = (0..)
+                    .try_fold(board, |board, _| {
+                        let board = logic::spawn_square(rng, board);
 
-        row = row.wrapping_shr(shift);
+                        let new_boards_iter = Direction::iter()
+                            .filter_map(|direction| logic::try_move(board, direction));
 
-        let mut mask = 0;
+                        let mut new_boards = MaybeUninit::uninit_array::<4>();
+                        let mut count = 0;
 
-        for j in [0, 4] {
-            mask = (mask << 4) | 0xf;
+                        for new_board in new_boards_iter {
+                            new_boards[count] = MaybeUninit::new(new_board.get());
+                            count += 1;
+                        }
 
-            let mut sub_row = row & !mask;
-            row &= mask;
-            let shift = sub_row.trailing_zeros() & !0x3;
-            sub_row = sub_row.wrapping_shr(shift);
+                        let new_boards =
+                            unsafe { MaybeUninit::slice_assume_init_ref(&new_boards[0..count]) }
+                                .iter()
+                                .copied();
 
-            if sub_row & 0xf == (row >> j) & 0xf && sub_row & 0xf != 0 {
-                // This can overflow into if the adjacent square if the square being incremented
-                // has reached 15.
-                row += 1 << j;
-            } else {
-                sub_row <<= 4;
-            }
+                        let maybe_best_board = new_boards
+                            .max_by_key(|&new_board| Self::eval_monte_carlo(rng, 3, new_board));
 
-            row |= (sub_row << j) & !mask;
-        }
+                        maybe_best_board.map_or(ControlFlow::Break(board), |best_board| {
+                            ControlFlow::Continue(best_board)
+                        })
+                    })
+                    .into_inner();
 
-        if row >> 12 == (row >> 8) & 0xf && row >> 12 != 0 {
-            // This can overflow into if the adjacent square if the square being incremented
-            // has reached 15.
-            row &= 0xfff;
-            row += 1 << 8;
-        }
-
-        row
-    }
-
-    const fn reverse_rows(board: u64) -> u64 {
-        let board = ((board << 4) & 0xf0f0_f0f0_f0f0_f0f0) | ((board >> 4) & 0xf0f_0f0f_0f0f_0f0f);
-        ((board << 8) & 0xff00_ff00_ff00_ff00) | ((board >> 8) & 0xff_00ff_00ff_00ff)
-    }
-
-    fn move_up(&self, board: u64) -> u64 {
-        (0..4)
-            .map(|i| {
-                let column = (0..4).fold(0, |column, j| {
-                    let cell = (board >> (j * 12 + i * 4)) as u16 & (0xf << (j * 4));
-
-                    column | cell
-                });
-
-                (i, unsafe {
-                    *self.move_table.get_unchecked(column as usize)
-                })
+                logic::eval_score(final_board) as f64
             })
-            .fold(0, |board, (i, column)| {
-                let board_column = (0..4).fold(0, |board_column, j| {
-                    let cell = (column as u64 & (0xf << (j * 4))) << (j * 12 + i * 4);
+            .sum();
 
-                    board_column | cell
-                });
-
-                board | board_column
-            })
+        (score_sum / iterations as f64) as u32
     }
-
-    fn move_down(&self, board: u64) -> u64 {
-        (0..4)
-            .map(|i| {
-                let column = (1..4).fold((board << (12 - i * 4)) as u16 & 0xf000, |column, j| {
-                    let cell = (board >> (j * 20 - 12 + i * 4)) as u16 & (0xf000 >> (j * 4));
-
-                    column | cell
-                });
-
-                (i, unsafe {
-                    *self.move_table.get_unchecked(column as usize)
-                })
-            })
-            .fold(0, |board, (i, column)| {
-                let board_column = (1..4).fold(
-                    (u64::from(column) & 0xf000) >> (12 - i * 4),
-                    |board_column, j| {
-                        let cell =
-                            (u64::from(column) & (0xf000 >> (j * 4))) << (j * 20 - 12 + i * 4);
-
-                        board_column | cell
-                    },
-                );
-
-                board | board_column
-            })
-    }
-
-    fn move_right(&self, board: u64) -> u64 {
-        let board = Self::reverse_rows(board);
-
-        let board = self.move_left(board);
-
-        Self::reverse_rows(board)
-    }
-
-    fn move_left(&self, board: u64) -> u64 {
-        (0..4)
-            .map(|i| {
-                let row = (board >> (i * 16)) as u16;
-                (i, unsafe { *self.move_table.get_unchecked(row as usize) })
-            })
-            .fold(0, |board, (i, row)| board | (u64::from(row) << (i * 16)))
-    }
-
-    fn try_move(&self, board: u64, direction: Direction) -> Option<NonZeroU64> {
-        let new_board = match direction {
-            Direction::Up => self.move_up(board),
-            Direction::Down => self.move_down(board),
-            Direction::Right => self.move_right(board),
-            Direction::Left => self.move_left(board),
-        };
-
-        (new_board != board)
-            .then_some(NonZeroU64::new(new_board))
-            .flatten()
-    }
-
-    fn get_all_moves(
-        &mut self,
-        moves_out: &mut [MaybeUninit<(u64, Direction)>; 4],
-        board: u64,
-    ) -> usize {
-        let moves_iter = Direction::iter().filter_map(|direction| {
-            self.try_move(board, direction)
-                .map(|new_board| (new_board.get(), direction))
-        });
-
-        let mut count: usize = 0;
-
-        for move_out in moves_iter {
-            moves_out[count] = MaybeUninit::new(move_out);
-            count += 1;
-        }
-
-        count
-    }
-}
-
-pub fn get_next_move_random(rng: &mut impl Rng, board: u64) -> Option<Direction> {
-    let moves: Vec<_> = Direction::iter()
-        .filter_map(|direction| logic::try_move(board, direction).map(|_| direction))
-        .collect();
-
-    (!moves.is_empty()).then(|| moves[rng.gen_range(0..(moves.len()))])
 }
