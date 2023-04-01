@@ -1,4 +1,8 @@
-use std::{mem::MaybeUninit, num::NonZeroU64};
+use std::{
+    iter::{FusedIterator, TrustedLen},
+    mem::MaybeUninit,
+    num::NonZeroU64,
+};
 
 use rand::Rng;
 
@@ -10,6 +14,66 @@ static EMPTY_CELL_COUNT_TABLE: [u8; u8::MAX as usize] =
     include!(concat!(env!("OUT_DIR"), "/empty_cell_count_table.rs"));
 
 const MOVE_FUNCTIONS: [fn(u64) -> u64; 4] = [move_up, move_down, move_right, move_left];
+
+pub struct OpponentMoves {
+    board: u64,
+    slots: u64,
+    slot_count: u32,
+    current_slot: u32,
+}
+
+impl OpponentMoves {
+    pub fn new(board: u64) -> Self {
+        let mut slots: u64 = 0;
+        let mut slot_count = 0;
+
+        for i in 0..16 {
+            if (board >> (i * 4)) & 0xf == 0 {
+                slots |= i << (slot_count * 4);
+                slot_count += 1;
+            }
+        }
+
+        Self {
+            board,
+            slots,
+            slot_count,
+            current_slot: 0,
+        }
+    }
+}
+
+impl Iterator for OpponentMoves {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        (self.current_slot < self.slot_count).then(|| {
+            let i = (self.slots >> (self.current_slot * 4)) & 0xf;
+
+            let new_board = self.board | (1 << (i * 4));
+
+            self.current_slot += 1;
+
+            new_board
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.len();
+
+        (len, Some(len))
+    }
+}
+
+impl ExactSizeIterator for OpponentMoves {
+    fn len(&self) -> usize {
+        (self.slot_count - self.current_slot) as usize
+    }
+}
+
+unsafe impl TrustedLen for OpponentMoves {}
+
+impl FusedIterator for OpponentMoves {}
 
 pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
     let mut slots: u64 = 0;

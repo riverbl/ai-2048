@@ -1,68 +1,12 @@
-use std::{
-    collections::HashMap,
-    hash::Hash,
-    iter::{FusedIterator, TrustedLen},
-    mem::MaybeUninit,
-    ops::ControlFlow,
-};
+use std::{collections::HashMap, mem::MaybeUninit, ops::ControlFlow};
 
 use rand::Rng;
 
-use crate::{control_flow_helper::ControlFlowHelper, direction::Direction, logic};
-
-struct OpponentMoves {
-    board: u64,
-    slots: u64,
-    slot_count: u32,
-    current_slot: u32,
-}
-
-impl OpponentMoves {
-    fn new(board: u64) -> Self {
-        let mut slots: u64 = 0;
-        let mut slot_count = 0;
-
-        for i in 0..16 {
-            if (board >> (i * 4)) & 0xf == 0 {
-                slots |= i << (slot_count * 4);
-                slot_count += 1;
-            }
-        }
-
-        Self {
-            board,
-            slots,
-            slot_count,
-            current_slot: 0,
-        }
-    }
-}
-
-impl Iterator for OpponentMoves {
-    type Item = u64;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        (self.current_slot < self.slot_count).then(|| {
-            let i = (self.slots >> (self.current_slot * 4)) & 0xf;
-
-            let new_board = self.board | (1 << (i * 4));
-
-            self.current_slot += 1;
-
-            new_board
-        })
-    }
-}
-
-impl ExactSizeIterator for OpponentMoves {
-    fn len(&self) -> usize {
-        (self.slot_count - self.current_slot) as usize
-    }
-}
-
-unsafe impl TrustedLen for OpponentMoves {}
-
-impl FusedIterator for OpponentMoves {}
+use crate::{
+    control_flow_helper::ControlFlowHelper,
+    direction::Direction,
+    logic::{self, OpponentMoves},
+};
 
 pub struct Ai<R> {
     rng: R,
@@ -84,12 +28,21 @@ where
         }
     }
 
-    fn expectimax_opponent_move(rng: &mut R, iterations: u32, board: u64, depth: u32) -> f64 {
+    fn expectimax_opponent_move(&mut self, board: u64, depth: u32) -> f64 {
         let moves = OpponentMoves::new(board);
 
         let (count, total_score) = moves.fold((0, 0.0), |(count, total_score), board| {
-            let score = Self::expectimax_player_move(rng, iterations, board, depth)
-                .map_or(0.0, |(score, _)| score);
+            let maybe_score = self.transposition_table.get(&board).copied();
+
+            let score = maybe_score.unwrap_or_else(|| {
+                let score = self
+                    .expectimax_player_move(board, depth)
+                    .map_or(0.0, |(score, _)| score);
+
+                self.transposition_table.insert(board, score);
+
+                score
+            });
 
             (count + 1, total_score + score)
         });
@@ -97,12 +50,7 @@ where
         total_score / (count as f64)
     }
 
-    fn expectimax_player_move(
-        rng: &mut R,
-        iterations: u32,
-        board: u64,
-        depth: u32,
-    ) -> Option<(f64, Direction)> {
+    fn expectimax_player_move(&mut self, board: u64, depth: u32) -> Option<(f64, Direction)> {
         let mut moves_array = MaybeUninit::uninit_array::<4>();
         let count = logic::get_all_moves(&mut moves_array, board);
 
@@ -112,7 +60,15 @@ where
         if let Some(depth) = depth.checked_sub(1) {
             player_moves
                 .map(|&(board, direction)| {
-                    let score = Self::expectimax_opponent_move(rng, iterations, board, depth);
+                    let maybe_score = self.transposition_table.get(&board).copied();
+
+                    let score = maybe_score.unwrap_or_else(|| {
+                        let score = self.expectimax_opponent_move(board, depth);
+
+                        self.transposition_table.insert(board, score);
+
+                        score
+                    });
 
                     (score, direction)
                 })
@@ -227,8 +183,25 @@ where
     }
 
     pub fn get_next_move_expectimax(&mut self, board: u64) -> Option<Direction> {
-        Self::expectimax_player_move(&mut self.rng, self.iterations, board, self.depth)
+        self.transposition_table.clear();
+
+        self.expectimax_player_move(board, self.depth)
             .map(|(_, direction)| direction)
+    }
+
+    pub fn get_next_move_monte_carlo(&mut self, board: u64) -> Option<Direction> {
+        let mut moves_array = MaybeUninit::uninit_array::<4>();
+        let count = logic::get_all_moves(&mut moves_array, board);
+
+        let player_moves =
+            unsafe { MaybeUninit::slice_assume_init_ref(&mut moves_array[0..count]) }.iter();
+
+        player_moves
+            .max_by_key(|&&(board, _)| {
+                Self::eval_monte_carlo(&mut self.rng, self.iterations, board)
+            })
+            .map(|(_, direction)| direction)
+            .copied()
     }
 
     fn eval_monte_carlo(rng: &mut R, iterations: u32, board: u64) -> u32 {
