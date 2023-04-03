@@ -8,9 +8,9 @@ use rand::Rng;
 
 use crate::direction::Direction;
 
-static MOVE_TABLE: [u16; u16::MAX as usize] = include!(concat!(env!("OUT_DIR"), "/move_table.rs"));
-static SCORE_TABLE: [u32; u8::MAX as usize] = include!(concat!(env!("OUT_DIR"), "/score_table.rs"));
-static EMPTY_CELL_COUNT_TABLE: [u8; u8::MAX as usize] =
+static MOVE_TABLE: [u16; 1 << 16] = include!(concat!(env!("OUT_DIR"), "/move_table.rs"));
+static SCORE_TABLE: [u32; 1 << 8] = include!(concat!(env!("OUT_DIR"), "/score_table.rs"));
+static EMPTY_CELL_COUNT_TABLE: [u8; 1 << 8] =
     include!(concat!(env!("OUT_DIR"), "/empty_cell_count_table.rs"));
 
 const MOVE_FUNCTIONS: [fn(u64) -> u64; 4] = [move_up, move_down, move_right, move_left];
@@ -44,17 +44,24 @@ impl OpponentMoves {
 }
 
 impl Iterator for OpponentMoves {
-    type Item = u64;
+    type Item = (u64, f64);
 
     fn next(&mut self) -> Option<Self::Item> {
-        (self.current_slot < self.slot_count).then(|| {
-            let i = (self.slots >> (self.current_slot * 4)) & 0xf;
+        (self.current_slot / 2 < self.slot_count).then(|| {
+            let i = (self.slots >> ((self.current_slot & !0x1) * 2)) & 0xf;
 
-            let new_board = self.board | (1 << (i * 4));
+            let cell = u64::from(self.current_slot & 0x1) + 1;
+            let new_board = self.board | (cell << (i * 4));
+
+            let probability = if self.current_slot & 0x1 == 0 {
+                1.0
+            } else {
+                0.1
+            };
 
             self.current_slot += 1;
 
-            new_board
+            (new_board, probability)
         })
     }
 
@@ -67,7 +74,7 @@ impl Iterator for OpponentMoves {
 
 impl ExactSizeIterator for OpponentMoves {
     fn len(&self) -> usize {
-        (self.slot_count - self.current_slot) as usize
+        (self.slot_count * 2 - self.current_slot) as usize
     }
 }
 
@@ -87,11 +94,14 @@ pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
     }
 
     if slot_count > 0 {
-        let slot = rng.gen_range(0..slot_count);
+        let rand = rng.gen_range(0..(slot_count * 10));
+
+        let slot = rand / 10;
+        let cell = if rand % 10 == 0 { 2 } else { 1 };
 
         let i = (slots >> (slot * 4)) & 0xf;
 
-        board | (1 << (i * 4))
+        board | (cell << (i * 4))
     } else {
         board
     }
@@ -234,23 +244,4 @@ pub fn try_move(board: u64, direction: Direction) -> Option<NonZeroU64> {
     (new_board != board)
         .then_some(NonZeroU64::new(new_board))
         .flatten()
-}
-
-pub fn get_next_move_random(rng: &mut impl Rng, board: u64) -> Option<Direction> {
-    let mut move_array = MaybeUninit::uninit_array::<4>();
-
-    let moves =
-        Direction::iter().filter_map(|direction| try_move(board, direction).map(|_| direction));
-    let mut count = 0;
-
-    for direction in moves {
-        move_array[count] = MaybeUninit::new(direction);
-        count += 1;
-    }
-
-    (count > 0).then(|| {
-        let moves = unsafe { MaybeUninit::slice_assume_init_ref(&move_array[0..count]) };
-
-        moves[rng.gen_range(0..count)]
-    })
 }

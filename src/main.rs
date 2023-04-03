@@ -15,9 +15,11 @@ use std::{
     os::fd::AsRawFd,
 };
 
-// use clap::value_parser;
+use ai::Ai;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+
+use crate::ai::{expectimax::ExpectimaxAi, monte_carlo::MonteCarloAi, random::RandomAi};
 
 mod ai;
 mod control_flow_helper;
@@ -29,9 +31,9 @@ mod rng_seeds;
 fn play_interactive(
     out: &mut (impl AsRawFd + Write),
     input: &mut impl Read,
-    rng: &mut impl Rng,
+    mut rng: impl Rng,
 ) -> io::Result<()> {
-    let mut board = logic::spawn_square(rng, 0);
+    let mut board = logic::spawn_square(&mut rng, 0);
     let mut score = 0;
 
     let mut buf = [0u8; 128];
@@ -56,7 +58,7 @@ fn play_interactive(
             if let Some(new_board) = move_boards[key] {
                 let new_board = new_board.get();
                 let move_score = logic::eval_score(new_board) - logic::eval_score(board);
-                let new_board = logic::spawn_square(rng, new_board);
+                let new_board = logic::spawn_square(&mut rng, new_board);
 
                 render::redraw_board(out, board, new_board, score, score + move_score)?;
 
@@ -83,8 +85,8 @@ fn play_interactive(
     out.write_all(b"Game over\n")
 }
 
-fn play_ai(out: &mut (impl AsRawFd + Write), rng: &mut impl Rng, depth: u32) -> io::Result<()> {
-    let mut board = logic::spawn_square(rng, 0);
+fn play_ai(out: &mut (impl AsRawFd + Write), mut ai: impl Ai, mut rng: impl Rng) -> io::Result<()> {
+    let mut board = logic::spawn_square(&mut rng, 0);
     let mut score = 0;
 
     render::setup_terminal(out)?;
@@ -92,14 +94,12 @@ fn play_ai(out: &mut (impl AsRawFd + Write), rng: &mut impl Rng, depth: u32) -> 
 
     let mut move_boards = logic::try_all_moves(board);
 
-    let mut ai = ai::Ai::new(ChaCha8Rng::from_entropy(), depth, 0);
-
     while move_boards.iter().any(Option::is_some) {
-        let direction = ai.get_next_move_expectimax(board).unwrap();
+        let direction = ai.get_next_move(board).unwrap();
 
         let new_board = move_boards[direction as usize].unwrap().get();
         let move_score = logic::eval_score(new_board) - logic::eval_score(board);
-        let new_board = logic::spawn_square(rng, new_board);
+        let new_board = logic::spawn_square(&mut rng, new_board);
 
         render::redraw_board(out, board, new_board, score, score + move_score)?;
 
@@ -112,40 +112,12 @@ fn play_ai(out: &mut (impl AsRawFd + Write), rng: &mut impl Rng, depth: u32) -> 
     out.write_all(b"Game over\n")
 }
 
-fn play_monte_carlo(
-    out: &mut (impl AsRawFd + Write),
-    rng: &mut impl Rng,
-    iterations: u32,
-) -> io::Result<()> {
-    let mut board = logic::spawn_square(rng, 0);
-    let mut score = 0;
-
-    render::setup_terminal(out)?;
-    render::draw_board(out, board, score)?;
-
-    let mut move_boards = logic::try_all_moves(board);
-
-    let mut ai = ai::Ai::new(ChaCha8Rng::from_entropy(), 0, iterations);
-
-    while move_boards.iter().any(Option::is_some) {
-        let direction = ai.get_next_move_monte_carlo(board).unwrap();
-
-        let new_board = move_boards[direction as usize].unwrap().get();
-        let move_score = logic::eval_score(new_board) - logic::eval_score(board);
-        let new_board = logic::spawn_square(rng, new_board);
-
-        render::redraw_board(out, board, new_board, score, score + move_score)?;
-
-        board = new_board;
-        score += move_score;
-
-        move_boards = logic::try_all_moves(board);
-    }
-
-    out.write_all(b"Game over\n")
-}
-
-fn bench(out: &mut impl Write, param: u32) -> io::Result<()> {
+fn bench_ai<A, R, I>(out: &mut impl Write, init_iter: I) -> io::Result<()>
+where
+    A: Ai,
+    R: Rng,
+    I: IntoIterator<Item = (A, R)>,
+{
     struct Stats {
         runs: u32,
         max_turns: u32,
@@ -156,33 +128,26 @@ fn bench(out: &mut impl Write, param: u32) -> io::Result<()> {
         avg_score: f64,
     }
 
-    let mut bench_results = rng_seeds::SEEDS
-        .into_iter()
-        .array_chunks()
-        .map(|[seed1, seed2]| {
-            let mut game_rng = ChaCha8Rng::from_seed(seed1);
-            let ai_rng = ChaCha8Rng::from_seed(seed2);
+    let mut bench_results = init_iter.into_iter().map(|(mut ai, mut rng)| {
+        let board = logic::spawn_square(&mut rng, 0);
 
-            let board = logic::spawn_square(&mut game_rng, 0);
-            let mut ai = ai::Ai::new(ai_rng, param, param);
+        (0..)
+            .try_fold((0, 0, board), |(turns, score, board), _| {
+                let maybe_direction = ai.get_next_move(board);
 
-            (0..)
-                .try_fold((0, 0, board), |(turns, score, board), _| {
-                    let maybe_direction = ai.get_next_move_monte_carlo(board);
+                if let Some(direction) = maybe_direction {
+                    let new_board = logic::try_move(board, direction).unwrap().get();
+                    let move_score = logic::eval_score(new_board) - logic::eval_score(board);
+                    let new_board = logic::spawn_square(&mut rng, new_board);
 
-                    if let Some(direction) = maybe_direction {
-                        let new_board = logic::try_move(board, direction).unwrap().get();
-                        let move_score = logic::eval_score(new_board) - logic::eval_score(board);
-                        let new_board = logic::spawn_square(&mut game_rng, new_board);
-
-                        ControlFlow::Continue((turns + 1, score + move_score, new_board))
-                    } else {
-                        ControlFlow::Break((turns, score))
-                    }
-                })
-                .break_value()
-                .unwrap()
-        });
+                    ControlFlow::Continue((turns + 1, score + move_score, new_board))
+                } else {
+                    ControlFlow::Break((turns, score))
+                }
+            })
+            .break_value()
+            .unwrap()
+    });
 
     if let Some((first_turns, first_score)) = bench_results.next() {
         let init_stats = Stats {
@@ -240,81 +205,30 @@ fn bench(out: &mut impl Write, param: u32) -> io::Result<()> {
     }
 }
 
-fn play_random(out: &mut (impl AsRawFd + Write), rng: &mut impl Rng) -> io::Result<()> {
-    let mut board = logic::spawn_square(rng, 0);
-    let mut score = 0;
-
-    render::setup_terminal(out)?;
-    render::draw_board(out, board, score)?;
-
-    let mut move_boards = logic::try_all_moves(board);
-
-    while move_boards.iter().any(Option::is_some) {
-        let direction = logic::get_next_move_random(rng, board).unwrap();
-
-        let new_board = move_boards[direction as usize].unwrap().get();
-        let move_score = logic::eval_score(new_board) - logic::eval_score(board);
-        let new_board = logic::spawn_square(rng, new_board);
-
-        render::redraw_board(out, board, new_board, score, score + move_score)?;
-
-        board = new_board;
-        score += move_score;
-
-        move_boards = logic::try_all_moves(board);
-    }
-
-    out.write_all(b"Game over\n")
-}
-
 fn main() -> io::Result<()> {
     enum Mode {
         Interactive,
-        Ai(u32),
+        Expectimax(u32),
         MonteCarlo(u32),
         Random,
-        Bench(u32),
+        BenchExpectimax(u32),
+        BenchMonteCarlo(u32),
+        BenchRandom,
     }
-
-    // let arg_parser = clap::Command::new("ai2048")
-    //     .arg(
-    //         clap::Arg::new("Random")
-    //             .short('r')
-    //             .long("rand")
-    //             .conflicts_with_all(["AI", "Depth"]),
-    //     )
-    //     .arg(
-    //         clap::Arg::new("AI")
-    //             .short('a')
-    //             .long("--ai")
-    //             .requires("Depth"),
-    //     )
-    //     .arg(
-    //         clap::Arg::new("Depth")
-    //             .short('d')
-    //             .long("--depth")
-    //             .requires("AI")
-    //             .value_parser(value_parser!(u32)),
-    //     );
 
     let mut stdout = io::stdout().lock();
     let mut stdin = io::stdin().lock();
-
-    // let args = match arg_parser.try_get_matches_from(env::args_os()) {
-    //     Ok(args) => args,
-    //     Err(err) => return write!(stdout, "{err}"),
-    // };
 
     let args: Vec<_> = env::args().skip(1).collect();
 
     let mode = match args.as_slice() {
         [] => Mode::Interactive,
-        [arg, depth_str] if arg == "-a" => {
+        [arg, depth_str] if arg == "-e" => {
             let Ok(depth) = depth_str.parse() else {
                 return writeln!(stdout, "Invalid depth {depth_str}");
             };
 
-            Mode::Ai(depth)
+            Mode::Expectimax(depth)
         }
         [arg, iterations_str] if arg == "-m" => {
             let Ok(iterations) = iterations_str.parse() else {
@@ -324,23 +238,67 @@ fn main() -> io::Result<()> {
             Mode::MonteCarlo(iterations)
         }
         [arg] if arg == "-r" => Mode::Random,
-        [arg, param_str] if arg == "-b" => {
-            let Ok(param) = param_str.parse() else {
-                return writeln!(stdout, "Invalid param {param_str}");
+        [arg, depth_str] if arg == "--be" => {
+            let Ok(depth) = depth_str.parse() else {
+                return writeln!(stdout, "Invalid depth {depth_str}");
             };
 
-            Mode::Bench(param)
+            Mode::BenchExpectimax(depth)
         }
+        [arg, iterations_str] if arg == "--bm" => {
+            let Ok(iterations) = iterations_str.parse() else {
+                return writeln!(stdout, "Invalid iterations {iterations_str}");
+            };
+
+            Mode::BenchMonteCarlo(iterations)
+        }
+        [arg] if arg == "--br" => Mode::BenchRandom,
         _ => return writeln!(stdout, "Invalid arguments"),
     };
 
-    let mut rng = ChaCha8Rng::from_entropy();
-
     match mode {
-        Mode::Interactive => play_interactive(&mut stdout, &mut stdin, &mut rng),
-        Mode::Ai(depth) => play_ai(&mut stdout, &mut rng, depth),
-        Mode::MonteCarlo(iterations) => play_monte_carlo(&mut stdout, &mut rng, iterations),
-        Mode::Random => play_random(&mut stdout, &mut rng),
-        Mode::Bench(param) => bench(&mut stdout, param),
+        Mode::Interactive => play_interactive(&mut stdout, &mut stdin, ChaCha8Rng::from_entropy()),
+        Mode::Expectimax(depth) => play_ai(
+            &mut stdout,
+            ExpectimaxAi::new(depth),
+            ChaCha8Rng::from_entropy(),
+        ),
+        Mode::MonteCarlo(iterations) => play_ai(
+            &mut stdout,
+            MonteCarloAi::new(ChaCha8Rng::from_entropy(), iterations),
+            ChaCha8Rng::from_entropy(),
+        ),
+        Mode::Random => play_ai(
+            &mut stdout,
+            RandomAi::new(ChaCha8Rng::from_entropy()),
+            ChaCha8Rng::from_entropy(),
+        ),
+        Mode::BenchExpectimax(depth) => {
+            let init_iter = rng_seeds::SEEDS
+                .into_iter()
+                .step_by(2)
+                .map(ChaCha8Rng::from_seed)
+                .map(|rng| (ExpectimaxAi::new(depth), rng));
+
+            bench_ai(&mut stdout, init_iter)
+        }
+        Mode::BenchMonteCarlo(iterations) => {
+            let init_iter = rng_seeds::SEEDS
+                .into_iter()
+                .map(ChaCha8Rng::from_seed)
+                .array_chunks()
+                .map(|[game_rng, ai_rng]| (MonteCarloAi::new(ai_rng, iterations), game_rng));
+
+            bench_ai(&mut stdout, init_iter)
+        }
+        Mode::BenchRandom => {
+            let init_iter = rng_seeds::SEEDS
+                .into_iter()
+                .map(ChaCha8Rng::from_seed)
+                .array_chunks()
+                .map(|[game_rng, ai_rng]| (RandomAi::new(ai_rng), game_rng));
+
+            bench_ai(&mut stdout, init_iter)
+        }
     }
 }

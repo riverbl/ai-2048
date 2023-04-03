@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 aho-corasick = "0.7.20"
-clap = "4.1.14"
 libc = "0.2.140"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
