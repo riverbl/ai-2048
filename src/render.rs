@@ -1,27 +1,68 @@
 use std::{
-    io::{self, Write},
+    io::{self, IoSlice, Write},
     mem::MaybeUninit,
     os::fd::AsRawFd,
 };
 
-const SQUARE_HEIGHT: u32 = 3;
-// const SQUARE_WIDTH: u32 = 2 * SQUARE_HEIGHT | 2;
-const TOP_ROW: &[u8] = "┏━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓\n".as_bytes();
-const SEPERATOR_ROW: &[u8] = "┣━━━━━━━━╋━━━━━━━━╋━━━━━━━━╋━━━━━━━━┫\n".as_bytes();
-const BOTTOM_ROW: &[u8] = "┗━━━━━━━━┻━━━━━━━━┻━━━━━━━━┻━━━━━━━━┛\n".as_bytes();
-const EMPTY_ROW: &[u8] = "┃        ┃        ┃        ┃        ┃\n".as_bytes();
-const EMPTY_CELL: &[u8] = "┃        ".as_bytes();
+const SQUARE_HEIGHT: usize = 3;
+// const SQUARE_WIDTH: usize = 2 * (SQUARE_HEIGHT + 1) - 1;
+const TOP_ROW: &[u8] = "┏━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━┓\n".as_bytes();
+const SEPERATOR_ROW: &[u8] = "┣━━━━━━━╋━━━━━━━╋━━━━━━━╋━━━━━━━┫\n".as_bytes();
+const BOTTOM_ROW: &[u8] = "┗━━━━━━━┻━━━━━━━┻━━━━━━━┻━━━━━━━┛\n".as_bytes();
+const EMPTY_ROW: &[u8] = "┃       ┃       ┃       ┃       ┃\n".as_bytes();
+const EMPTY_CELL: &[u8] = "┃       ".as_bytes();
+const COLOUR_TABLE: [u8; 7] = [90, 33, 31, 32, 33, 36, 35];
 
 fn draw_board_row(out: &mut impl Write, row: u16) -> io::Result<()> {
+    for _ in 0..((SQUARE_HEIGHT - 1).div_floor(2)) {
+        for j in 0..4 {
+            let exponent = (row >> (j * 4)) & 0xf;
+
+            let maybe_colour: Option<u8> = exponent
+                .checked_sub(1)
+                .map(|i| COLOUR_TABLE[i as usize % COLOUR_TABLE.len()] + 10);
+
+            if let Some(colour) = maybe_colour {
+                write!(out, "┃\x1b[{colour}m       \x1b[m")?;
+            } else {
+                out.write_all(EMPTY_CELL)?;
+            }
+        }
+    }
+
+    out.write_all(b"\x1b[E")?;
+
     for j in 0..4 {
         let exponent = (row >> (j * 4)) & 0xf;
 
-        if exponent == 0 {
-            out.write_all(EMPTY_CELL)?;
-        } else {
-            let n = 1 << exponent;
+        let maybe_colour: Option<u8> = exponent
+            .checked_sub(1)
+            .map(|i| COLOUR_TABLE[i as usize % COLOUR_TABLE.len()]);
 
-            write!(out, "┃{n:^8}")?;
+        if let Some(colour) = maybe_colour {
+            let num = 1 << exponent;
+
+            write!(out, "┃\x1b[7m\x1b[{colour}m{num:^7}\x1b[m")?;
+        } else {
+            out.write_all(EMPTY_CELL)?;
+        }
+    }
+
+    out.write_all(b"\x1b[E")?;
+
+    for _ in 0..((SQUARE_HEIGHT - 1).div_ceil(2)) {
+        for j in 0..4 {
+            let exponent = (row >> (j * 4)) & 0xf;
+
+            let maybe_colour: Option<u8> = exponent
+                .checked_sub(1)
+                .map(|i| COLOUR_TABLE[i as usize % COLOUR_TABLE.len()] + 10);
+
+            if let Some(colour) = maybe_colour {
+                write!(out, "┃\x1b[{colour}m       \x1b[m")?;
+            } else {
+                out.write_all(EMPTY_CELL)?;
+            }
         }
     }
 
@@ -37,21 +78,12 @@ pub fn draw_board(out: &mut impl Write, board: u64, score: u32) -> io::Result<()
             out.write_all(SEPERATOR_ROW)?;
         }
 
-        for _ in 0..((SQUARE_HEIGHT - 1).div_floor(2)) {
-            out.write_all(EMPTY_ROW)?;
-        }
-
-        draw_board_row(out, (board >> (i * 16)) as u16)?;
-        out.write_all("┃\n".as_bytes())?;
-
-        for _ in 0..((SQUARE_HEIGHT - 1).div_ceil(2)) {
-            out.write_all(EMPTY_ROW)?;
-        }
+        out.write_all_vectored(&mut [EMPTY_ROW; SQUARE_HEIGHT].map(IoSlice::new))?;
     }
 
     out.write_all(BOTTOM_ROW)?;
 
-    Ok(())
+    redraw_board(out, 0, board, score, score)
 }
 
 pub fn redraw_board(
@@ -76,7 +108,7 @@ pub fn redraw_board(
     for row in changed_rows {
         let final_row_to_end = (SQUARE_HEIGHT - 1).div_ceil(2) + 2;
         let between_rows = SQUARE_HEIGHT + 1;
-        let target_line = final_row_to_end + between_rows * (3 - row);
+        let target_line = final_row_to_end + between_rows * (3 - row) + 1;
 
         if target_line > current_line {
             write!(out, "\x1b[{}F", target_line - current_line)?;
@@ -84,8 +116,8 @@ pub fn redraw_board(
             write!(out, "\x1b[{}E", current_line - target_line)?;
         }
 
-        current_line = target_line;
         draw_board_row(out, (new_board >> (row * 16)) as u16)?;
+        current_line = target_line - 2;
     }
 
     if current_line != 0 {
