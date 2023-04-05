@@ -70,7 +70,7 @@ fn draw_board_row(out: &mut impl Write, row: u16) -> io::Result<()> {
 }
 
 pub fn draw_board(out: &mut impl Write, board: u64, score: u32) -> io::Result<()> {
-    write!(out, "\nScore: {score}\n")?;
+    writeln!(out, "Score: {score}")?;
     out.write_all(TOP_ROW)?;
 
     for i in 0..4 {

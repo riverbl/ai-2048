@@ -41,18 +41,29 @@ fn move_row(row: u16) -> u16 {
     row
 }
 
-fn write_move_table(out: &mut impl Write) -> io::Result<()> {
-    out.write_all(b"[0")?;
+fn row_metrics(row: u16) -> u8 {
+    (0..3)
+        .filter(|i| {
+            let cell1 = (row >> (i * 4)) & 0xf;
+            let cell2 = (row >> (i * 4 + 4)) & 0xf;
 
-    for row in (1..u16::MAX).map(move_row) {
-        write!(out, ",{row}")?;
+            cell1 == 0 || cell2 == 0 || cell1 == cell2
+        })
+        .count() as _
+}
+
+fn write_move_table(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(b"[")?;
+
+    for row in (0..=u16::MAX).map(move_row) {
+        write!(out, "{row},")?;
     }
 
     out.write_all(b"]\n")
 }
 
 fn write_score_table(out: &mut impl Write) -> io::Result<()> {
-    let scores = (1..u8::MAX).map(|cell_pair| {
+    let scores = (0..=u8::MAX).map(|cell_pair| {
         (0..2).fold(0, |score, i| {
             let exponent = u32::from(cell_pair >> (i * 4)) & 0xf;
 
@@ -65,31 +76,20 @@ fn write_score_table(out: &mut impl Write) -> io::Result<()> {
         })
     });
 
-    out.write_all(b"[0")?;
+    out.write_all(b"[")?;
 
     for score in scores {
-        write!(out, ",{score}")?;
+        write!(out, "{score},")?;
     }
 
     out.write_all(b"]\n")
 }
 
-fn write_empty_cell_count_table(out: &mut impl Write) -> io::Result<()> {
-    let empty_cell_counts = (1..u8::MAX).map(|cell_pair| {
-        (0..2).fold(0, |empty_cell_count, i| {
-            empty_cell_count
-                + if (cell_pair >> (i * 4)) & 0xf == 0 {
-                    1
-                } else {
-                    0
-                }
-        })
-    });
+fn write_metrics_table(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(b"[")?;
 
-    out.write_all(b"[0")?;
-
-    for empty_cell_count in empty_cell_counts {
-        write!(out, ",{empty_cell_count}")?;
+    for row in (0..=u16::MAX).map(row_metrics) {
+        write!(out, "{row},")?;
     }
 
     out.write_all(b"]\n")
@@ -107,7 +107,7 @@ fn main() {
     let mut score_table_file = File::create(&score_table_path).unwrap();
     write_score_table(&mut score_table_file).unwrap();
 
-    let empty_cell_count_table_path = out_dir_path.join("empty_cell_count_table.rs");
-    let mut empty_cell_count_table_file = File::create(&empty_cell_count_table_path).unwrap();
-    write_empty_cell_count_table(&mut empty_cell_count_table_file).unwrap();
+    let metrics_table_path = out_dir_path.join("metrics_table.rs");
+    let mut metrics_table_file = File::create(&metrics_table_path).unwrap();
+    write_metrics_table(&mut metrics_table_file).unwrap();
 }

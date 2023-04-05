@@ -38,7 +38,7 @@ impl<R> RandomAi<R>
 where
     R: Rng,
 {
-    pub fn new(rng: R) -> Self {
+    pub const fn new(rng: R) -> Self {
         Self { rng }
     }
 }

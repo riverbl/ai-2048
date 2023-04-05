@@ -177,10 +177,15 @@ where
             let min_turns = cmp::min(turns, stats.min_turns);
             let min_score = cmp::min(score, stats.min_score);
 
-            let avg_turns =
-                (stats.avg_turns * f64::from(stats.runs) + f64::from(turns)) / f64::from(runs);
-            let avg_score =
-                (stats.avg_score * f64::from(stats.runs) + f64::from(score)) / f64::from(runs);
+            let avg_turns = stats
+                .avg_turns
+                .mul_add(f64::from(stats.runs), f64::from(turns))
+                / f64::from(runs);
+
+            let avg_score = stats
+                .avg_score
+                .mul_add(f64::from(stats.runs), f64::from(score))
+                / f64::from(runs);
 
             Stats {
                 runs,

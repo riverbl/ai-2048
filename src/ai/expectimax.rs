@@ -1,4 +1,6 @@
-use std::{collections::HashMap, mem::MaybeUninit};
+use std::mem::MaybeUninit;
+
+use rustc_hash::FxHashMap;
 
 use crate::{
     direction::Direction,
@@ -9,7 +11,7 @@ use super::Ai;
 
 pub struct ExpectimaxAi {
     depth: u32,
-    transposition_table: HashMap<(u64, u32), f64>,
+    transposition_table: FxHashMap<(u64, u32), f64>,
 }
 
 impl Ai for ExpectimaxAi {
@@ -25,7 +27,7 @@ impl ExpectimaxAi {
     pub fn new(depth: u32) -> Self {
         Self {
             depth,
-            transposition_table: HashMap::new(),
+            transposition_table: FxHashMap::default(),
         }
     }
 
@@ -41,7 +43,7 @@ impl ExpectimaxAi {
                     .copied();
                 // let maybe_score = None;
 
-                let weighted_score = maybe_score.unwrap_or_else(|| {
+                let score = maybe_score.unwrap_or_else(|| {
                     let score = self
                         .expectimax_player_move(board, depth)
                         .map_or_else(|| f64::from(logic::eval_score(board)), |(score, _)| score);
@@ -50,11 +52,11 @@ impl ExpectimaxAi {
                         .insert((board, depth * 2 + 1), score);
 
                     score
-                }) * probability;
+                });
 
                 (
                     total_probability + probability,
-                    total_score + weighted_score,
+                    score.mul_add(probability, total_score),
                 )
             },
         );
@@ -72,13 +74,13 @@ impl ExpectimaxAi {
         if let Some(depth) = depth.checked_sub(1) {
             player_moves
                 .map(|&(board, direction)| {
-                    // let maybe_score = self.transposition_table.get(&(board, depth * 2)).copied();
-                    let maybe_score = None;
+                    let maybe_score = self.transposition_table.get(&(board, depth * 2)).copied();
+                    // let maybe_score = None;
 
                     let score = maybe_score.unwrap_or_else(|| {
                         let score = self.expectimax_opponent_move(board, depth);
 
-                        // self.transposition_table.insert((board, depth * 2), score);
+                        self.transposition_table.insert((board, depth * 2), score);
 
                         score
                     });

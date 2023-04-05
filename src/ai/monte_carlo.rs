@@ -35,13 +35,13 @@ impl<R> MonteCarloAi<R>
 where
     R: Rng,
 {
-    pub fn new(rng: R, iterations: u32) -> Self {
+    pub const fn new(rng: R, iterations: u32) -> Self {
         Self { rng, iterations }
     }
 
     fn eval_monte_carlo(rng: &mut R, iterations: u32, board: u64) -> u32 {
         let score_sum: f64 = (0..iterations)
-            .map(|_| {
+            .map(|_| -> f64 {
                 let final_board = iter::repeat(())
                     .try_fold(board, |board, _| {
                         let board = logic::spawn_square(rng, board);
@@ -70,16 +70,16 @@ where
                     })
                     .into_inner();
 
-                logic::eval_score(final_board) as f64
+                logic::eval_score(final_board).into()
             })
             .sum();
 
-        (score_sum / iterations as f64) as u32
+        (score_sum / f64::from(iterations)) as u32
     }
 
     fn eval_monte_carlo2(rng: &mut R, iterations: u32, board: u64) -> u32 {
         let score_sum: f64 = (0..iterations)
-            .map(|_| {
+            .map(|_| -> f64 {
                 let final_board = iter::repeat(())
                     .try_fold(board, |board, _| {
                         let board = logic::spawn_square(rng, board);
@@ -109,10 +109,10 @@ where
                     })
                     .into_inner();
 
-                logic::eval_score(final_board) as f64
+                logic::eval_score(final_board).into()
             })
             .sum();
 
-        (score_sum / iterations as f64) as u32
+        (score_sum / f64::from(iterations)) as u32
     }
 }
