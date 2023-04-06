@@ -10,8 +10,7 @@ use crate::direction::Direction;
 
 static MOVE_TABLE: [u16; 1 << 16] = include!(concat!(env!("OUT_DIR"), "/move_table.rs"));
 static SCORE_TABLE: [u32; 1 << 8] = include!(concat!(env!("OUT_DIR"), "/score_table.rs"));
-static EMPTY_CELL_COUNT_TABLE: [u8; 1 << 8] =
-    include!(concat!(env!("OUT_DIR"), "/empty_cell_count_table.rs"));
+static METRICS_TABLE: [i8; 1 << 16] = include!(concat!(env!("OUT_DIR"), "/metrics_table.rs"));
 
 const MOVE_FUNCTIONS: [fn(u64) -> u64; 4] = [move_up, move_down, move_right, move_left];
 
@@ -54,7 +53,7 @@ impl Iterator for OpponentMoves {
             let new_board = self.board | (cell << (i * 4));
 
             let probability = if self.current_slot & 0x1 == 0 {
-                1.0
+                0.9
             } else {
                 0.1
             };
@@ -108,101 +107,81 @@ pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
 }
 
 pub fn eval_score(board: u64) -> u32 {
-    // const SCORES2: [u32; 16] = [
-    //     0, 0, 4, 16, 48, 128, 320, 768, 1792, 4096, 9216, 20480, 45056, 98304, 212992, 458752,
-    // ];
-
     (0..8).fold(0, |score, i| {
         let cell = ((board >> (i * 8)) & 0xff) as usize;
 
         score + SCORE_TABLE[cell]
     })
-
-    // (0..16).fold(0, |score, i| {
-    //     let exponent = ((board >> (i * 4)) & 0xf) as u32;
-
-    //     score
-    //         + if exponent != 0 {
-    //             (exponent - 1) * (1 << exponent)
-    //         } else {
-    //             0
-    //         }
-    // })
-
-    // if scores1 != scores2 || scores1 != scores3 {
-    //     panic!("{board}, {scores1}, {scores2}, {scores3}")
-    // }
 }
 
-fn count_empty_cells(board: u64) -> u32 {
-    (0..8).fold(0, |empty_cell_count, i| {
-        let cell = ((board >> (i * 8)) & 0xff) as usize;
+// pub fn eval_metrics(board: u64) -> i32 {
+//     let row_metrics: i32 = (0..4)
+//         .map(|i| -> i32 {
+//             let row = (board >> (i * 16)) & 0xffff;
 
-        empty_cell_count + u32::from(EMPTY_CELL_COUNT_TABLE[cell])
-    })
+//             METRICS_TABLE[row as usize].into()
+//         })
+//         .sum();
+
+//     let board = transpose_board(board);
+
+//     let column_metrics: i32 = (0..4)
+//         .map(|i| -> i32 {
+//             let column = (board >> (i * 16)) & 0xffff;
+
+//             METRICS_TABLE[column as usize].into()
+//         })
+//         .sum();
+
+//     row_metrics + column_metrics
+// }
+
+// pub fn count_empty_cells(board: u64) -> u32 {
+//     let table = board | (board >> 1);
+//     let table = table | (table >> 2);
+
+//     let table = !table & 0x1111_1111_1111_1111;
+
+//     let sum = table + (table >> 4);
+//     let sum = sum + (sum >> 8);
+//     let sum = sum + (sum >> 16);
+//     let sum = sum + (sum >> 32);
+
+//     (sum & 0xf) as u32
+// }
+
+pub const fn mirror_board(board: u64) -> u64 {
+    let board = ((board << 4) & 0xf0f0_f0f0_f0f0_f0f0) | ((board >> 4) & 0x0f0f_0f0f_0f0f_0f0f);
+    ((board << 8) & 0xff00_ff00_ff00_ff00) | ((board >> 8) & 0x00ff_00ff_00ff_00ff)
 }
 
-fn move_up(board: u64) -> u64 {
-    (0..4)
-        .map(|i| {
-            let column = (0..4).fold(0, |column, j| {
-                let cell = (board >> (j * 12 + i * 4)) as u16 & (0xf << (j * 4));
+pub const fn transpose_board(board: u64) -> u64 {
+    let keep = board & 0xf0f0_0f0f_f0f0_0f0f;
+    let left = board & 0x0000_f0f0_0000_f0f0;
+    let right = board & 0x0f0f_0000_0f0f_0000;
+    let board = keep | (left << 12) | (right >> 12);
 
-                column | cell
-            });
+    let keep = board & 0xff00_ff00_00ff_00ff;
+    let left = board & 0x0000_0000_ff00_ff00;
+    let right = board & 0x00ff_00ff_0000_0000;
 
-            (i, MOVE_TABLE[column as usize])
-        })
-        .fold(0, |new_board, (i, column)| {
-            let board_column = (0..4).fold(0, |board_column, j| {
-                let cell = (column as u64 & (0xf << (j * 4))) << (j * 12 + i * 4);
-
-                board_column | cell
-            });
-
-            new_board | board_column
-        })
+    keep | (left << 24) | (right >> 24)
 }
 
-fn move_down(board: u64) -> u64 {
-    (0..4)
-        .map(|i| {
-            let column = (1..4).fold((board << (12 - i * 4)) as u16 & 0xf000, |column, j| {
-                let cell = (board >> (j * 20 - 12 + i * 4)) as u16 & (0xf000 >> (j * 4));
+pub const fn transpose_rotate_board(board: u64) -> u64 {
+    let keep = board & 0x0f0f_f0f0_0f0f_f0f0;
+    let left = board & 0x0000_0f0f_0000_0f0f;
+    let right = board & 0xf0f0_0000_f0f0_0000;
+    let board = keep | (left << 20) | (right >> 20);
 
-                column | cell
-            });
+    let keep = board & 0x00ff_00ff_ff00_ff00;
+    let left = board & 0x0000_0000_00ff_00ff;
+    let right = board & 0xff00_ff00_0000_0000;
 
-            (i, MOVE_TABLE[column as usize])
-        })
-        .fold(0, |new_board, (i, column)| {
-            let board_column = (1..4).fold(
-                (u64::from(column) & 0xf000) >> (12 - i * 4),
-                |board_column, j| {
-                    let cell = (u64::from(column) & (0xf000 >> (j * 4))) << (j * 20 - 12 + i * 4);
-
-                    board_column | cell
-                },
-            );
-
-            new_board | board_column
-        })
+    keep | (left << 40) | (right >> 40)
 }
 
-const fn reverse_rows(board: u64) -> u64 {
-    let board = ((board << 4) & 0xf0f0_f0f0_f0f0_f0f0) | ((board >> 4) & 0xf0f_0f0f_0f0f_0f0f);
-    ((board << 8) & 0xff00_ff00_ff00_ff00) | ((board >> 8) & 0xff_00ff_00ff_00ff)
-}
-
-fn move_right(board: u64) -> u64 {
-    let board = reverse_rows(board);
-
-    let new_board = move_left(board);
-
-    reverse_rows(new_board)
-}
-
-fn move_left(board: u64) -> u64 {
+pub fn do_move(board: u64) -> u64 {
     (0..4)
         .map(|i| {
             let row = (board >> (i * 16)) as u16;
@@ -211,6 +190,34 @@ fn move_left(board: u64) -> u64 {
         .fold(0, |new_board, (i, row)| {
             new_board | (u64::from(row) << (i * 16))
         })
+}
+
+fn move_up(board: u64) -> u64 {
+    let board = transpose_board(board);
+
+    let new_board = do_move(board);
+
+    transpose_board(new_board)
+}
+
+fn move_down(board: u64) -> u64 {
+    let board = transpose_rotate_board(board);
+
+    let new_board = do_move(board);
+
+    transpose_rotate_board(new_board)
+}
+
+fn move_right(board: u64) -> u64 {
+    let board = mirror_board(board);
+
+    let new_board = do_move(board);
+
+    mirror_board(new_board)
+}
+
+fn move_left(board: u64) -> u64 {
+    do_move(board)
 }
 
 pub fn try_all_moves(board: u64) -> [Option<NonZeroU64>; 4] {

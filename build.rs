@@ -1,3 +1,5 @@
+#![feature(is_sorted)]
+
 use std::{
     env,
     fs::File,
@@ -41,15 +43,41 @@ fn move_row(row: u16) -> u16 {
     row
 }
 
-fn row_metrics(row: u16) -> u8 {
-    (0..3)
+fn row_metrics(row: u16) -> i8 {
+    let merge_count = (0..3)
         .filter(|i| {
             let cell1 = (row >> (i * 4)) & 0xf;
             let cell2 = (row >> (i * 4 + 4)) & 0xf;
 
             cell1 == 0 || cell2 == 0 || cell1 == cell2
         })
-        .count() as _
+        .count();
+
+    let monitonic_score = {
+        let mut cells = [0u8; 4];
+
+        for i in 0..4 {
+            cells[i] = ((row >> (i * 4)) & 0xf) as _;
+        }
+
+        let is_monotonic = cells.iter().is_sorted() || cells.iter().rev().is_sorted();
+
+        cells.sort_unstable();
+
+        let score: i8 = cells[0..3]
+            .into_iter()
+            .map(|cell| cell.saturating_sub(6))
+            .map(|x| (x * x / 3) as i8)
+            .sum();
+
+        if is_monotonic {
+            score
+        } else {
+            -score
+        }
+    };
+
+    merge_count as i8 + monitonic_score
 }
 
 fn write_move_table(out: &mut impl Write) -> io::Result<()> {
