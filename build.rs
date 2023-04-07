@@ -2,8 +2,9 @@
 
 use std::{
     env,
+    fmt::Display,
     fs::File,
-    io::{self, Write},
+    io::{self, BufWriter, Write},
     path::Path,
 };
 
@@ -80,17 +81,30 @@ fn row_metrics(row: u16) -> i8 {
     merge_count as i8 + monitonic_score
 }
 
-fn write_move_table(out: &mut impl Write) -> io::Result<()> {
-    out.write_all(b"[")?;
+fn write_table(
+    file_path: &impl AsRef<Path>,
+    items: impl IntoIterator<Item = impl Display>,
+) -> io::Result<()> {
+    let file = File::create(file_path)?;
+    let mut writer = BufWriter::new(file);
 
-    for row in (0..=u16::MAX).map(move_row) {
-        write!(out, "{row},")?;
+    writer.write_all(b"#[allow(clippy::unreadable_literal)]\n[")?;
+
+    for item in items {
+        write!(writer, "{item},")?;
     }
 
-    out.write_all(b"]\n")
+    writer.write_all(b"]\n")?;
+    writer.flush()
 }
 
-fn write_score_table(out: &mut impl Write) -> io::Result<()> {
+fn write_move_table(file_path: &impl AsRef<Path>) -> io::Result<()> {
+    let rows = (0..=u16::MAX).map(move_row);
+
+    write_table(file_path, rows)
+}
+
+fn write_score_table(file_path: &impl AsRef<Path>) -> io::Result<()> {
     let scores = (0..=u8::MAX).map(|cell_pair| {
         (0..2).fold(0, |score, i| {
             let exponent = u32::from(cell_pair >> (i * 4)) & 0xf;
@@ -104,23 +118,13 @@ fn write_score_table(out: &mut impl Write) -> io::Result<()> {
         })
     });
 
-    out.write_all(b"[")?;
-
-    for score in scores {
-        write!(out, "{score},")?;
-    }
-
-    out.write_all(b"]\n")
+    write_table(file_path, scores)
 }
 
-fn write_metrics_table(out: &mut impl Write) -> io::Result<()> {
-    out.write_all(b"[")?;
+fn write_metrics_table(file_path: &impl AsRef<Path>) -> io::Result<()> {
+    let metrics = (0..=u16::MAX).map(row_metrics);
 
-    for row in (0..=u16::MAX).map(row_metrics) {
-        write!(out, "{row},")?;
-    }
-
-    out.write_all(b"]\n")
+    write_table(file_path, metrics)
 }
 
 fn main() {
@@ -128,14 +132,11 @@ fn main() {
     let out_dir_path = Path::new(&out_dir);
 
     let move_table_path = out_dir_path.join("move_table.rs");
-    let mut move_table_file = File::create(&move_table_path).unwrap();
-    write_move_table(&mut move_table_file).unwrap();
+    write_move_table(&move_table_path).unwrap();
 
     let score_table_path = out_dir_path.join("score_table.rs");
-    let mut score_table_file = File::create(&score_table_path).unwrap();
-    write_score_table(&mut score_table_file).unwrap();
+    write_score_table(&score_table_path).unwrap();
 
     let metrics_table_path = out_dir_path.join("metrics_table.rs");
-    let mut metrics_table_file = File::create(&metrics_table_path).unwrap();
-    write_metrics_table(&mut metrics_table_file).unwrap();
+    write_metrics_table(&metrics_table_path).unwrap();
 }

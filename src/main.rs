@@ -4,6 +4,7 @@
     iter_array_chunks,
     maybe_uninit_slice,
     maybe_uninit_uninit_array,
+    stmt_expr_attributes,
     trusted_len,
     write_all_vectored
 )]
