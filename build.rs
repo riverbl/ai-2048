@@ -56,8 +56,8 @@ fn row_metrics(row: u16) -> i8 {
     let monitonic_score = {
         let mut cells = [0u8; 4];
 
-        for i in 0..4 {
-            cells[i] = ((row >> (i * 4)) & 0xf) as _;
+        for (i, cell) in cells.iter_mut().enumerate() {
+            *cell = ((row >> (i * 4)) & 0xf) as _;
         }
 
         let is_monotonic = cells.iter().is_sorted() || cells.iter().rev().is_sorted();
@@ -65,8 +65,8 @@ fn row_metrics(row: u16) -> i8 {
         cells.sort_unstable();
 
         let score: i8 = cells[0..3]
-            .into_iter()
-            .map(|cell| cell.saturating_sub(6))
+            .iter()
+            .map(|&cell| cell.saturating_sub(6))
             .map(|x| (x * x / 3) as i8)
             .sum();
 

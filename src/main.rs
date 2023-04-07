@@ -135,15 +135,13 @@ where
             .try_fold((0, 0, board), |(turns, score, board), _| {
                 let maybe_direction = ai.get_next_move(board);
 
-                if let Some(direction) = maybe_direction {
+                maybe_direction.map_or(ControlFlow::Break((turns, score)), |direction| {
                     let new_board = logic::try_move(board, direction).unwrap().get();
                     let move_score = logic::eval_score(new_board) - logic::eval_score(board);
                     let new_board = logic::spawn_square(&mut rng, new_board);
 
                     ControlFlow::Continue((turns + 1, score + move_score, new_board))
-                } else {
-                    ControlFlow::Break((turns, score))
-                }
+                })
             })
             .break_value()
             .unwrap()
