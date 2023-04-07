@@ -1,5 +1,3 @@
-use std::mem::MaybeUninit;
-
 use rustc_hash::FxHashMap;
 
 use crate::{
@@ -65,15 +63,11 @@ impl ExpectimaxAi {
     }
 
     fn expectimax_player_move(&mut self, board: u64, depth: u32) -> Option<(f64, Direction)> {
-        let mut moves_array = MaybeUninit::uninit_array::<4>();
-        let count = logic::get_all_moves(&mut moves_array, board);
-
-        let player_moves =
-            unsafe { MaybeUninit::slice_assume_init_mut(&mut moves_array[0..count]) }.iter();
+        let player_moves = super::get_all_moves(board);
 
         if let Some(depth) = depth.checked_sub(1) {
             player_moves
-                .map(|&(board, direction)| {
+                .map(|(board, direction)| {
                     let maybe_score = self.transposition_table.get(&(board, depth * 2)).copied();
                     // let maybe_score = None;
 
@@ -90,7 +84,7 @@ impl ExpectimaxAi {
                 .max_by(|&(score1, _), &(score2, _)| score1.total_cmp(&score2))
         } else {
             player_moves
-                .map(|&(board, direction)| (f64::from(logic::eval_score(board)), direction))
+                .map(|(board, direction)| (f64::from(logic::eval_score(board)), direction))
                 .max_by(|&(score1, _), &(score2, _)| score1.total_cmp(&score2))
         }
     }

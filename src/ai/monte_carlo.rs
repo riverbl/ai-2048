@@ -16,18 +16,11 @@ where
     R: Rng,
 {
     fn get_next_move(&mut self, board: u64) -> Option<Direction> {
-        let mut moves_array = MaybeUninit::uninit_array::<4>();
-        let count = logic::get_all_moves(&mut moves_array, board);
-
-        let player_moves =
-            unsafe { MaybeUninit::slice_assume_init_ref(&moves_array[0..count]) }.iter();
+        let player_moves = super::get_all_moves(board);
 
         player_moves
-            .max_by_key(|&&(board, _)| {
-                Self::eval_monte_carlo(&mut self.rng, self.iterations, board)
-            })
+            .max_by_key(|&(board, _)| Self::eval_monte_carlo(&mut self.rng, self.iterations, board))
             .map(|(_, direction)| direction)
-            .copied()
     }
 }
 
@@ -47,7 +40,7 @@ where
                         let board = logic::spawn_square(rng, board);
 
                         let new_boards_iter = Direction::iter()
-                            .filter_map(|direction| logic::try_move(board, direction));
+                            .filter_map(|direction| super::try_move(board, direction));
 
                         let mut new_boards = MaybeUninit::uninit_array::<4>();
                         let mut count = 0;
@@ -77,42 +70,42 @@ where
         (score_sum / f64::from(iterations)) as u32
     }
 
-    fn eval_monte_carlo2(rng: &mut R, iterations: u32, board: u64) -> u32 {
-        let score_sum: f64 = (0..iterations)
-            .map(|_| -> f64 {
-                let final_board = iter::repeat(())
-                    .try_fold(board, |board, _| {
-                        let board = logic::spawn_square(rng, board);
+    // fn eval_monte_carlo2(rng: &mut R, iterations: u32, board: u64) -> u32 {
+    //     let score_sum: f64 = (0..iterations)
+    //         .map(|_| -> f64 {
+    //             let final_board = iter::repeat(())
+    //                 .try_fold(board, |board, _| {
+    //                     let board = logic::spawn_square(rng, board);
 
-                        let new_boards_iter = Direction::iter()
-                            .filter_map(|direction| logic::try_move(board, direction));
+    //                     let new_boards_iter = Direction::iter()
+    //                         .filter_map(|direction| logic::try_move(board, direction));
 
-                        let mut new_boards = MaybeUninit::uninit_array::<4>();
-                        let mut count = 0;
+    //                     let mut new_boards = MaybeUninit::uninit_array::<4>();
+    //                     let mut count = 0;
 
-                        for new_board in new_boards_iter {
-                            new_boards[count] = MaybeUninit::new(new_board.get());
-                            count += 1;
-                        }
+    //                     for new_board in new_boards_iter {
+    //                         new_boards[count] = MaybeUninit::new(new_board.get());
+    //                         count += 1;
+    //                     }
 
-                        let new_boards =
-                            unsafe { MaybeUninit::slice_assume_init_ref(&new_boards[0..count]) }
-                                .iter()
-                                .copied();
+    //                     let new_boards =
+    //                         unsafe { MaybeUninit::slice_assume_init_ref(&new_boards[0..count]) }
+    //                             .iter()
+    //                             .copied();
 
-                        let maybe_best_board = new_boards
-                            .max_by_key(|&new_board| Self::eval_monte_carlo(rng, 3, new_board));
+    //                     let maybe_best_board = new_boards
+    //                         .max_by_key(|&new_board| Self::eval_monte_carlo(rng, 3, new_board));
 
-                        maybe_best_board.map_or(ControlFlow::Break(board), |best_board| {
-                            ControlFlow::Continue(best_board)
-                        })
-                    })
-                    .into_inner();
+    //                     maybe_best_board.map_or(ControlFlow::Break(board), |best_board| {
+    //                         ControlFlow::Continue(best_board)
+    //                     })
+    //                 })
+    //                 .into_inner();
 
-                logic::eval_score(final_board).into()
-            })
-            .sum();
+    //             logic::eval_score(final_board).into()
+    //         })
+    //         .sum();
 
-        (score_sum / f64::from(iterations)) as u32
-    }
+    //     (score_sum / f64::from(iterations)) as u32
+    // }
 }

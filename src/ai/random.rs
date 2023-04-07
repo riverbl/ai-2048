@@ -2,7 +2,7 @@ use std::mem::MaybeUninit;
 
 use rand::Rng;
 
-use crate::{direction::Direction, logic};
+use crate::direction::Direction;
 
 use super::Ai;
 
@@ -18,7 +18,7 @@ where
         let mut move_array = MaybeUninit::uninit_array::<4>();
 
         let moves = Direction::iter()
-            .filter_map(|direction| logic::try_move(board, direction).map(|_| direction));
+            .filter_map(|direction| super::try_move(board, direction).map(|_| direction));
         let mut count = 0;
 
         for direction in moves {

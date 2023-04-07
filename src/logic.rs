@@ -1,6 +1,5 @@
 use std::{
     iter::{FusedIterator, TrustedLen},
-    mem::MaybeUninit,
     num::NonZeroU64,
 };
 
@@ -10,7 +9,7 @@ use crate::direction::Direction;
 
 static MOVE_TABLE: [u16; 1 << 16] = include!(concat!(env!("OUT_DIR"), "/move_table.rs"));
 static SCORE_TABLE: [u32; 1 << 8] = include!(concat!(env!("OUT_DIR"), "/score_table.rs"));
-static METRICS_TABLE: [i8; 1 << 16] = include!(concat!(env!("OUT_DIR"), "/metrics_table.rs"));
+// static METRICS_TABLE: [i8; 1 << 16] = include!(concat!(env!("OUT_DIR"), "/metrics_table.rs"));
 
 const MOVE_FUNCTIONS: [fn(u64) -> u64; 4] = [move_up, move_down, move_right, move_left];
 
@@ -222,27 +221,12 @@ fn move_left(board: u64) -> u64 {
 
 pub fn try_all_moves(board: u64) -> [Option<NonZeroU64>; 4] {
     MOVE_FUNCTIONS
-        .map(|try_move| try_move(board))
+        .map(|move_fn| move_fn(board))
         .map(|new_board| {
             (new_board != board)
                 .then_some(NonZeroU64::new(new_board))
                 .flatten()
         })
-}
-
-pub fn get_all_moves(moves_out: &mut [MaybeUninit<(u64, Direction)>; 4], board: u64) -> usize {
-    let moves_iter = Direction::iter().filter_map(|direction| {
-        try_move(board, direction).map(|new_board| (new_board.get(), direction))
-    });
-
-    let mut count: usize = 0;
-
-    for move_out in moves_iter {
-        moves_out[count] = MaybeUninit::new(move_out);
-        count += 1;
-    }
-
-    count
 }
 
 pub fn try_move(board: u64, direction: Direction) -> Option<NonZeroU64> {
