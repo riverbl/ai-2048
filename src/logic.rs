@@ -22,15 +22,7 @@ pub struct OpponentMoves {
 
 impl OpponentMoves {
     pub fn new(board: u64) -> Self {
-        let mut slots: u64 = 0;
-        let mut slot_count = 0;
-
-        for i in 0..16 {
-            if (board >> (i * 4)) & 0xf == 0 {
-                slots |= i << (slot_count * 4);
-                slot_count += 1;
-            }
-        }
+        let (slot_count, slots) = get_empty_slots(board);
 
         Self {
             board,
@@ -80,7 +72,7 @@ unsafe impl TrustedLen for OpponentMoves {}
 
 impl FusedIterator for OpponentMoves {}
 
-pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
+fn get_empty_slots(board: u64) -> (u32, u64) {
     let mut slots: u64 = 0;
     let mut slot_count = 0;
 
@@ -90,6 +82,12 @@ pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
             slot_count += 1;
         }
     }
+
+    (slot_count, slots)
+}
+
+pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
+    let (slot_count, slots) = get_empty_slots(board);
 
     if slot_count > 0 {
         let rand = rng.gen_range(0..(slot_count * 10));
