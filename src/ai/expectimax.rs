@@ -1,9 +1,6 @@
 use rustc_hash::FxHashMap;
 
-use crate::{
-    direction::Direction,
-    logic::{self, OpponentMoves},
-};
+use crate::{direction::Direction, logic};
 
 use super::Ai;
 
@@ -30,7 +27,7 @@ impl ExpectimaxAi {
     }
 
     fn expectimax_opponent_move(&mut self, board: u64, depth: u32) -> f64 {
-        let moves = OpponentMoves::new(board);
+        let moves = logic::get_opponent_moves(board);
 
         let (total_probability, total_score) = moves.fold(
             (0.0, 0.0),

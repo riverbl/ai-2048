@@ -1,7 +1,4 @@
-use std::{
-    iter::{FusedIterator, TrustedLen},
-    num::NonZeroU64,
-};
+use std::num::NonZeroU64;
 
 use rand::Rng;
 
@@ -13,91 +10,75 @@ static SCORE_TABLE: [u32; 1 << 8] = include!(concat!(env!("OUT_DIR"), "/score_ta
 
 const MOVE_FUNCTIONS: [fn(u64) -> u64; 4] = [move_up, move_down, move_right, move_left];
 
-pub struct OpponentMoves {
-    board: u64,
-    slots: u64,
-    slot_count: u32,
-    current_slot: u32,
+pub fn get_opponent_moves(board: u64) -> impl Iterator<Item = (u64, f64)> {
+    let (slot_count, slots) = get_empty_slots(board);
+
+    (0..slot_count).flat_map(move |slot_idx| {
+        [(1, 0.9), (2, 0.1)]
+            .into_iter()
+            .map(move |(cell, probability)| {
+                let slot = (slots >> (slot_idx * 4)) & 0xf;
+                let new_board = board | (cell << (slot * 4));
+
+                (new_board, probability)
+            })
+    })
 }
 
-impl OpponentMoves {
-    pub fn new(board: u64) -> Self {
-        let (slot_count, slots) = get_empty_slots(board);
+const fn mark_empty_cells(board: u64) -> u64 {
+    let table = board | (board >> 1);
+    let table = table | (table >> 2);
 
-        Self {
-            board,
-            slots,
-            slot_count,
-            current_slot: 0,
-        }
-    }
+    !table & 0x1111_1111_1111_1111
 }
 
-impl Iterator for OpponentMoves {
-    type Item = (u64, f64);
+const fn count_empty_cells(board: u64) -> u32 {
+    let empty_cells = mark_empty_cells(board);
 
-    fn next(&mut self) -> Option<Self::Item> {
-        (self.current_slot / 2 < self.slot_count).then(|| {
-            let i = (self.slots >> ((self.current_slot & !0x1) * 2)) & 0xf;
-
-            let cell = u64::from(self.current_slot & 0x1) + 1;
-            let new_board = self.board | (cell << (i * 4));
-
-            let probability = if self.current_slot & 0x1 == 0 {
-                0.9
-            } else {
-                0.1
-            };
-
-            self.current_slot += 1;
-
-            (new_board, probability)
-        })
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.len();
-
-        (len, Some(len))
-    }
+    empty_cells.count_ones()
 }
 
-impl ExactSizeIterator for OpponentMoves {
-    fn len(&self) -> usize {
-        (self.slot_count * 2 - self.current_slot) as usize
-    }
-}
-
-unsafe impl TrustedLen for OpponentMoves {}
-
-impl FusedIterator for OpponentMoves {}
-
-fn get_empty_slots(board: u64) -> (u32, u64) {
+const fn get_empty_slots(board: u64) -> (u32, u64) {
     let mut slots: u64 = 0;
     let mut slot_count = 0;
 
-    for i in 0..16 {
-        if (board >> (i * 4)) & 0xf == 0 {
-            slots |= i << (slot_count * 4);
-            slot_count += 1;
-        }
+    let mut empty_cells = mark_empty_cells(board);
+
+    while empty_cells != 0 {
+        let trailing_zeros = empty_cells.trailing_zeros();
+
+        let slot = trailing_zeros as u64 / 4;
+        empty_cells ^= 1 << trailing_zeros;
+
+        slots |= slot << slot_count;
+        slot_count += 4;
     }
+
+    slot_count /= 4;
 
     (slot_count, slots)
 }
 
 pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
-    let (slot_count, slots) = get_empty_slots(board);
+    let slot_count = count_empty_cells(board);
 
     if slot_count > 0 {
         let rand = rng.gen_range(0..(slot_count * 10));
 
-        let slot = rand / 10;
+        let slot_idx = rand / 10;
         let cell = if rand % 10 == 0 { 2 } else { 1 };
 
-        let i = (slots >> (slot * 4)) & 0xf;
+        let empty_cells = mark_empty_cells(board);
 
-        board | (cell << (i * 4))
+        let init_slot = empty_cells.trailing_zeros();
+
+        let slot = (0..slot_idx).fold(init_slot, |slot, _| {
+            let slot = slot + 4;
+
+            slot + (empty_cells >> slot).trailing_zeros()
+        });
+
+        board | (cell << slot)
     } else {
         board
     }
@@ -131,20 +112,6 @@ pub fn eval_score(board: u64) -> u32 {
 //         .sum();
 
 //     row_metrics + column_metrics
-// }
-
-// pub fn count_empty_cells(board: u64) -> u32 {
-//     let table = board | (board >> 1);
-//     let table = table | (table >> 2);
-
-//     let table = !table & 0x1111_1111_1111_1111;
-
-//     let sum = table + (table >> 4);
-//     let sum = sum + (sum >> 8);
-//     let sum = sum + (sum >> 16);
-//     let sum = sum + (sum >> 32);
-
-//     (sum & 0xf) as u32
 // }
 
 pub const fn mirror_board(board: u64) -> u64 {
