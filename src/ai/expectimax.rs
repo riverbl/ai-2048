@@ -32,10 +32,13 @@ impl ExpectimaxAi {
         let (total_probability, total_score) = moves.fold(
             (0.0, 0.0),
             |(total_probability, total_score), (board, probability)| {
-                let maybe_score = self
-                    .transposition_table
-                    .get(&(board, depth * 2 + 1))
-                    .copied();
+                let maybe_score = (depth > 0)
+                    .then(|| {
+                        self.transposition_table
+                            .get(&(board, depth * 2 + 1))
+                            .copied()
+                    })
+                    .flatten();
                 // let maybe_score = None;
 
                 let score = maybe_score.unwrap_or_else(|| {
@@ -43,8 +46,10 @@ impl ExpectimaxAi {
                         .expectimax_player_move(board, depth)
                         .map_or_else(|| f64::from(logic::eval_score(board)), |(score, _)| score);
 
-                    self.transposition_table
-                        .insert((board, depth * 2 + 1), score);
+                    if depth > 0 {
+                        self.transposition_table
+                            .insert((board, depth * 2 + 1), score);
+                    }
 
                     score
                 });
