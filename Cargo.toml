@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-aho-corasick = "0.7.20"
-libc = "0.2.140"
+aho-corasick = "1.0.1"
+libc = "0.2.142"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 rustc-hash = "1.1.0"
@@ -17,4 +17,7 @@ codegen-units = 1
 lto = true
 opt-level = 3
 panic = "abort"
+# Include symbols to allow flamegraph generation
 strip = "symbols"
+#strip = "none"
+#debug = 1
