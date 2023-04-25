@@ -15,7 +15,7 @@ fn move_row(row: u16) -> u16 {
 
     let mut mask = 0;
 
-    for j in [0, 4] {
+    for j in [0, 4, 8] {
         mask = (mask << 4) | 0xf;
 
         let mut sub_row = row & !mask;
@@ -23,22 +23,22 @@ fn move_row(row: u16) -> u16 {
         let shift = sub_row.trailing_zeros() & !0x3;
         sub_row = sub_row.wrapping_shr(shift);
 
-        if sub_row & 0xf == (row >> j) & 0xf && sub_row & 0xf != 0 {
-            // This can overflow into if the adjacent square if the square being incremented
-            // has reached 15.
-            row += 1 << j;
+        let sub_row_cell = sub_row & 0xf;
+        let row_cell = (row >> j) & 0xf;
+
+        if sub_row_cell == row_cell && sub_row_cell != 0 {
+            // If the cell is already 15 then incrementing it would overflow into the adjacent
+            // cell.
+            if row_cell != 15 {
+                row += 1 << j;
+            }
+        } else if row_cell == 0 {
+            row += sub_row_cell << j;
         } else {
             sub_row <<= 4;
         }
 
         row |= (sub_row << j) & !mask;
-    }
-
-    if row >> 12 == (row >> 8) & 0xf && row >> 12 != 0 {
-        // This can overflow into if the adjacent square if the square being incremented
-        // has reached 15.
-        row &= 0xfff;
-        row += 1 << 8;
     }
 
     row
