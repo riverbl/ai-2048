@@ -1,4 +1,4 @@
-use std::num::NonZeroU64;
+use std::{arch::x86_64::*, num::NonZeroU64};
 
 use rand::Rng;
 
@@ -32,35 +32,27 @@ const fn mark_empty_cells(board: u64) -> u64 {
     !table & 0x1111_1111_1111_1111
 }
 
-const fn count_empty_cells(board: u64) -> u32 {
+// const fn count_empty_cells(board: u64) -> u32 {
+//     let empty_cells = mark_empty_cells(board);
+
+//     empty_cells.count_ones()
+// }
+
+fn get_empty_slots(board: u64) -> (u32, u64) {
     let empty_cells = mark_empty_cells(board);
 
-    empty_cells.count_ones()
-}
+    let empty_cells_all_ones = {
+        let ones = empty_cells | (empty_cells << 1);
+        ones | (ones << 2)
+    };
 
-const fn get_empty_slots(board: u64) -> (u32, u64) {
-    let mut slots: u64 = 0;
-    let mut slot_count = 0;
+    let slots = unsafe { _pext_u64(0xfedc_ba98_7654_3210, empty_cells_all_ones) };
 
-    let mut empty_cells = mark_empty_cells(board);
-
-    while empty_cells != 0 {
-        let trailing_zeros = empty_cells.trailing_zeros();
-
-        let slot = trailing_zeros as u64 / 4;
-        empty_cells &= empty_cells - 1;
-
-        slots |= slot << slot_count;
-        slot_count += 4;
-    }
-
-    slot_count /= 4;
-
-    (slot_count, slots)
+    (empty_cells.count_ones(), slots)
 }
 
 pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
-    let slot_count = count_empty_cells(board);
+    let (slot_count, slots) = get_empty_slots(board);
 
     if slot_count > 0 {
         let rand = rng.gen_range(0..(slot_count * 10));
@@ -68,17 +60,9 @@ pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
         let slot_idx = rand / 10;
         let cell = if rand % 10 == 0 { 2 } else { 1 };
 
-        let empty_cells = mark_empty_cells(board);
+        let slot = (slots >> (slot_idx * 4)) & 0xf;
 
-        let init_slot = empty_cells.trailing_zeros();
-
-        let slot = (0..slot_idx).fold(init_slot, |slot, _| {
-            let slot = slot + 4;
-
-            slot + (empty_cells >> slot).trailing_zeros()
-        });
-
-        board | (cell << slot)
+        board | (cell << (slot * 4))
     } else {
         board
     }
