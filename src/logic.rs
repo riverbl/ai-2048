@@ -48,7 +48,7 @@ const fn get_empty_slots(board: u64) -> (u32, u64) {
         let trailing_zeros = empty_cells.trailing_zeros();
 
         let slot = trailing_zeros as u64 / 4;
-        empty_cells ^= 1 << trailing_zeros;
+        empty_cells &= empty_cells - 1;
 
         slots |= slot << slot_count;
         slot_count += 4;
