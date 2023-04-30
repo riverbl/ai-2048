@@ -32,9 +32,9 @@ where
         Self { rng, iterations }
     }
 
-    fn eval_monte_carlo(rng: &mut R, iterations: u32, board: u64) -> u32 {
-        let score_sum: f64 = (0..iterations)
-            .map(|_| -> f64 {
+    fn eval_monte_carlo(rng: &mut R, iterations: u32, board: u64) -> u64 {
+        (0..iterations)
+            .map(|_| -> u64 {
                 let final_board = iter::repeat(())
                     .try_fold(board, |board, _| {
                         let board = logic::spawn_square(rng, board);
@@ -65,14 +65,12 @@ where
 
                 logic::eval_score(final_board).into()
             })
-            .sum();
-
-        (score_sum / f64::from(iterations)) as u32
+            .sum()
     }
 
-    // fn eval_monte_carlo2(rng: &mut R, iterations: u32, board: u64) -> u32 {
-    //     let score_sum: f64 = (0..iterations)
-    //         .map(|_| -> f64 {
+    // fn eval_monte_carlo2(rng: &mut R, iterations: u32, board: u64) -> u64 {
+    //     (0..iterations)
+    //         .map(|_| -> u64 {
     //             let final_board = iter::repeat(())
     //                 .try_fold(board, |board, _| {
     //                     let board = logic::spawn_square(rng, board);
@@ -104,8 +102,6 @@ where
 
     //             logic::eval_score(final_board).into()
     //         })
-    //         .sum();
-
-    //     (score_sum / f64::from(iterations)) as u32
+    //         .sum()
     // }
 }

@@ -87,7 +87,7 @@ impl ExpectimaxAi {
         } else {
             player_moves
                 .map(|(board, direction)| (f64::from(logic::eval_score(board)), direction))
-                .max_by(|&(score1, _), &(score2, _)| score1.total_cmp(&score2))
+                .max_by(|(score1, _), (score2, _)| score1.total_cmp(score2))
         }
     }
 }
