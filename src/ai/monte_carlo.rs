@@ -1,8 +1,8 @@
-use std::{iter, mem::MaybeUninit, ops::ControlFlow};
+use std::{mem::MaybeUninit, ops::ControlFlow};
 
 use rand::Rng;
 
-use crate::{control_flow_helper::ControlFlowHelper, direction::Direction, logic};
+use crate::{control_flow_helper, direction::Direction, logic};
 
 use super::Ai;
 
@@ -35,33 +35,31 @@ where
     fn eval_monte_carlo(rng: &mut R, iterations: u32, board: u64) -> u64 {
         (0..iterations)
             .map(|_| -> u64 {
-                let final_board = iter::repeat(())
-                    .try_fold(board, |board, _| {
-                        let board = logic::spawn_square(rng, board);
+                let final_board = control_flow_helper::loop_try_fold(board, |board| {
+                    let board = logic::spawn_square(rng, board);
 
-                        let new_boards_iter = Direction::iter()
-                            .filter_map(|direction| super::try_move(board, direction));
+                    let new_boards_iter =
+                        Direction::iter().filter_map(|direction| super::try_move(board, direction));
 
-                        let mut new_boards = MaybeUninit::uninit_array::<4>();
-                        let mut count = 0;
+                    let mut new_boards = MaybeUninit::uninit_array::<4>();
+                    let mut count = 0;
 
-                        for new_board in new_boards_iter {
-                            new_boards[count] = MaybeUninit::new(new_board.get());
-                            count += 1;
-                        }
+                    for new_board in new_boards_iter {
+                        new_boards[count] = MaybeUninit::new(new_board.get());
+                        count += 1;
+                    }
 
-                        let new_boards =
-                            unsafe { MaybeUninit::slice_assume_init_ref(&new_boards[0..count]) };
+                    let new_boards =
+                        unsafe { MaybeUninit::slice_assume_init_ref(&new_boards[0..count]) };
 
-                        if count > 0 {
-                            let i = rng.gen_range(0..count);
+                    if count > 0 {
+                        let i = rng.gen_range(0..count);
 
-                            ControlFlow::Continue(new_boards[i])
-                        } else {
-                            ControlFlow::Break(board)
-                        }
-                    })
-                    .into_inner();
+                        ControlFlow::Continue(new_boards[i])
+                    } else {
+                        ControlFlow::Break(board)
+                    }
+                });
 
                 logic::eval_score(final_board).into()
             })
@@ -71,34 +69,32 @@ where
     // fn eval_monte_carlo2(rng: &mut R, iterations: u32, board: u64) -> u64 {
     //     (0..iterations)
     //         .map(|_| -> u64 {
-    //             let final_board = iter::repeat(())
-    //                 .try_fold(board, |board, _| {
-    //                     let board = logic::spawn_square(rng, board);
+    //             let final_board = control_flow_helper::loop_try_fold(board, |board| {
+    //                 let board = logic::spawn_square(rng, board);
 
-    //                     let new_boards_iter = Direction::iter()
-    //                         .filter_map(|direction| logic::try_move(board, direction));
+    //                 let new_boards_iter =
+    //                     Direction::iter().filter_map(|direction| logic::try_move(board, direction));
 
-    //                     let mut new_boards = MaybeUninit::uninit_array::<4>();
-    //                     let mut count = 0;
+    //                 let mut new_boards = MaybeUninit::uninit_array::<4>();
+    //                 let mut count = 0;
 
-    //                     for new_board in new_boards_iter {
-    //                         new_boards[count] = MaybeUninit::new(new_board.get());
-    //                         count += 1;
-    //                     }
+    //                 for new_board in new_boards_iter {
+    //                     new_boards[count] = MaybeUninit::new(new_board.get());
+    //                     count += 1;
+    //                 }
 
-    //                     let new_boards =
-    //                         unsafe { MaybeUninit::slice_assume_init_ref(&new_boards[0..count]) }
-    //                             .iter()
-    //                             .copied();
+    //                 let new_boards =
+    //                     unsafe { MaybeUninit::slice_assume_init_ref(&new_boards[0..count]) }
+    //                         .iter()
+    //                         .copied();
 
-    //                     let maybe_best_board = new_boards
-    //                         .max_by_key(|&new_board| Self::eval_monte_carlo(rng, 3, new_board));
+    //                 let maybe_best_board = new_boards
+    //                     .max_by_key(|&new_board| Self::eval_monte_carlo(rng, 3, new_board));
 
-    //                     maybe_best_board.map_or(ControlFlow::Break(board), |best_board| {
-    //                         ControlFlow::Continue(best_board)
-    //                     })
+    //                 maybe_best_board.map_or(ControlFlow::Break(board), |best_board| {
+    //                     ControlFlow::Continue(best_board)
     //                 })
-    //                 .into_inner();
+    //             });
 
     //             logic::eval_score(final_board).into()
     //         })

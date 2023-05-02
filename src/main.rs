@@ -132,20 +132,17 @@ where
     let mut bench_results = init_iter.into_iter().map(|(mut ai, mut rng)| {
         let board = logic::spawn_square(&mut rng, 0);
 
-        (0..)
-            .try_fold((0, 0, board), |(turns, score, board), _| {
-                let maybe_direction = ai.get_next_move(board);
+        control_flow_helper::loop_try_fold((0, 0, board), |(turns, score, board)| {
+            let maybe_direction = ai.get_next_move(board);
 
-                maybe_direction.map_or(ControlFlow::Break((turns, score)), |direction| {
-                    let new_board = logic::try_move(board, direction).unwrap().get();
-                    let move_score = logic::eval_score(new_board) - logic::eval_score(board);
-                    let new_board = logic::spawn_square(&mut rng, new_board);
+            maybe_direction.map_or(ControlFlow::Break((turns, score)), |direction| {
+                let new_board = logic::try_move(board, direction).unwrap().get();
+                let move_score = logic::eval_score(new_board) - logic::eval_score(board);
+                let new_board = logic::spawn_square(&mut rng, new_board);
 
-                    ControlFlow::Continue((turns + 1, score + move_score, new_board))
-                })
+                ControlFlow::Continue((turns + 1, score + move_score, new_board))
             })
-            .break_value()
-            .unwrap()
+        })
     });
 
     if let Some((first_turns, first_score)) = bench_results.next() {

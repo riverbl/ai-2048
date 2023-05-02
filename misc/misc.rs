@@ -2,6 +2,18 @@
 // useful in the future.
 // They may have bugs!
 
+pub trait ControlFlowHelper<T> {
+    fn into_inner(self) -> T;
+}
+
+impl<T> ControlFlowHelper<T> for ControlFlow<T, T> {
+    fn into_inner(self) -> T {
+        match self {
+            Self::Break(inner) | Self::Continue(inner) => inner,
+        }
+    }
+}
+
 pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
     let empty_cells = mark_empty_cells(board);
     let slot_count = empty_cells.count_ones();
