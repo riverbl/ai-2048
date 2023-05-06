@@ -1,5 +1,8 @@
+[workspace]
+members = ["core-2048", "lib-2048", "optimise-2048"]
+
 [package]
-name = "ai2048"
+name = "ai-2048"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,10 +10,10 @@ edition = "2021"
 
 [dependencies]
 aho-corasick = "1.0.1"
+lib-2048 = { path = "lib-2048" }
 libc = "0.2.142"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
-rustc-hash = "1.1.0"
 
 [profile.release]
 codegen-units = 1

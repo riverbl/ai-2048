@@ -4,12 +4,14 @@ use crate::{direction::Direction, logic};
 
 use super::Ai;
 
-pub struct ExpectimaxAi {
+pub struct ExpectimaxAi<F> {
     depth: u32,
     transposition_table: FxHashMap<(u64, u32), f64>,
+    loss_weight: f64,
+    eval_function: F,
 }
 
-impl Ai for ExpectimaxAi {
+impl<F: FnMut(u64) -> f64> Ai for ExpectimaxAi<F> {
     fn get_next_move(&mut self, board: u64) -> Option<Direction> {
         self.transposition_table.clear();
 
@@ -18,11 +20,13 @@ impl Ai for ExpectimaxAi {
     }
 }
 
-impl ExpectimaxAi {
-    pub fn new(depth: u32) -> Self {
+impl<F: FnMut(u64) -> f64> ExpectimaxAi<F> {
+    pub fn new(depth: u32, loss_weight: f64, eval_function: F) -> Self {
         Self {
             depth,
+            loss_weight,
             transposition_table: FxHashMap::default(),
+            eval_function,
         }
     }
 
@@ -42,9 +46,10 @@ impl ExpectimaxAi {
                 // let maybe_score = None;
 
                 let score = maybe_score.unwrap_or_else(|| {
-                    let score = self
-                        .expectimax_player_move(board, depth)
-                        .map_or_else(|| f64::from(logic::eval_score(board)), |(score, _)| score);
+                    let score = self.expectimax_player_move(board, depth).map_or_else(
+                        || f64::from(logic::eval_score(board)) * self.loss_weight,
+                        |(score, _)| score,
+                    );
 
                     if depth > 0 {
                         self.transposition_table
@@ -83,10 +88,10 @@ impl ExpectimaxAi {
 
                     (score, direction)
                 })
-                .max_by(|&(score1, _), &(score2, _)| score1.total_cmp(&score2))
+                .max_by(|(score1, _), (score2, _)| score1.total_cmp(score2))
         } else {
             player_moves
-                .map(|(board, direction)| (f64::from(logic::eval_score(board)), direction))
+                .map(|(board, direction)| ((self.eval_function)(board), direction))
                 .max_by(|(score1, _), (score2, _)| score1.total_cmp(score2))
         }
     }

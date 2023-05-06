@@ -1,9 +1,10 @@
 #![feature(
+    array_windows,
+    atomic_bool_fetch_not,
     control_flow_enum,
     int_roundings,
     iter_array_chunks,
-    maybe_uninit_slice,
-    maybe_uninit_uninit_array,
+    maybe_uninit_array_assume_init,
     stmt_expr_attributes,
     trusted_len,
     write_all_vectored
@@ -16,18 +17,15 @@ use std::{
     os::fd::AsRawFd,
 };
 
-use ai::Ai;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
-use crate::ai::{expectimax::ExpectimaxAi, monte_carlo::MonteCarloAi, random::RandomAi};
+use lib_2048::{
+    ai::{expectimax::ExpectimaxAi, monte_carlo::MonteCarloAi, random::RandomAi, Ai},
+    control_flow_helper, logic, rng_seeds,
+};
 
-mod ai;
-mod control_flow_helper;
-mod direction;
-mod logic;
 mod render;
-mod rng_seeds;
 
 fn play_interactive(
     out: &mut (impl AsRawFd + Write),
@@ -261,7 +259,7 @@ fn main() -> io::Result<()> {
         Mode::Interactive => play_interactive(&mut stdout, &mut stdin, ChaCha8Rng::from_entropy()),
         Mode::Expectimax(depth) => play_ai(
             &mut stdout,
-            ExpectimaxAi::new(depth),
+            ExpectimaxAi::new(depth, 1.0, |board| logic::eval_score(board).into()),
             ChaCha8Rng::from_entropy(),
         ),
         Mode::MonteCarlo(iterations) => play_ai(
@@ -279,7 +277,12 @@ fn main() -> io::Result<()> {
                 .into_iter()
                 .step_by(2)
                 .map(ChaCha8Rng::from_seed)
-                .map(|rng| (ExpectimaxAi::new(depth), rng));
+                .map(|rng| {
+                    (
+                        ExpectimaxAi::new(depth, 1.0, |board| logic::eval_score(board).into()),
+                        rng,
+                    )
+                });
 
             bench_ai(&mut stdout, init_iter)
         }

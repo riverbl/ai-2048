@@ -1,11 +1,19 @@
-use std::{arch::x86_64::*, num::NonZeroU64};
+use std::{arch::x86_64::*, mem, num::NonZeroU64};
 
 use rand::Rng;
 
 use crate::direction::Direction;
 
-static MOVE_TABLE: [u16; 1 << 16] = include!(concat!(env!("OUT_DIR"), "/move_table.rs"));
-static SCORE_TABLE: [u32; 1 << 8] = include!(concat!(env!("OUT_DIR"), "/score_table.rs"));
+static MOVE_TABLE: [u16; 1 << 16] = {
+    static TABLE: &[u8; 1 << 17] = include_bytes!(concat!(env!("OUT_DIR"), "/move_table"));
+
+    unsafe { mem::transmute_copy(TABLE) }
+};
+static SCORE_TABLE: [u32; 1 << 8] = {
+    static TABLE: &[u8; 1 << 10] = include_bytes!(concat!(env!("OUT_DIR"), "/score_table"));
+
+    unsafe { mem::transmute_copy(TABLE) }
+};
 // static METRICS_TABLE: [i8; 1 << 16] = include!(concat!(env!("OUT_DIR"), "/metrics_table.rs"));
 
 const MOVE_FUNCTIONS: [fn(u64) -> u64; 4] = [move_up, move_down, move_right, move_left];
@@ -98,37 +106,6 @@ pub fn eval_score(board: u64) -> u32 {
 //     row_metrics + column_metrics
 // }
 
-pub const fn mirror_board(board: u64) -> u64 {
-    let board = ((board << 4) & 0xf0f0_f0f0_f0f0_f0f0) | ((board >> 4) & 0x0f0f_0f0f_0f0f_0f0f);
-    ((board << 8) & 0xff00_ff00_ff00_ff00) | ((board >> 8) & 0x00ff_00ff_00ff_00ff)
-}
-
-pub const fn transpose_board(board: u64) -> u64 {
-    let keep = board & 0xf0f0_0f0f_f0f0_0f0f;
-    let left = board & 0x0000_f0f0_0000_f0f0;
-    let right = board & 0x0f0f_0000_0f0f_0000;
-    let board = keep | (left << 12) | (right >> 12);
-
-    let keep = board & 0xff00_ff00_00ff_00ff;
-    let left = board & 0x0000_0000_ff00_ff00;
-    let right = board & 0x00ff_00ff_0000_0000;
-
-    keep | (left << 24) | (right >> 24)
-}
-
-pub const fn transpose_rotate_board(board: u64) -> u64 {
-    let keep = board & 0x0f0f_f0f0_0f0f_f0f0;
-    let left = board & 0x0000_0f0f_0000_0f0f;
-    let right = board & 0xf0f0_0000_f0f0_0000;
-    let board = keep | (left << 20) | (right >> 20);
-
-    let keep = board & 0x00ff_00ff_ff00_ff00;
-    let left = board & 0x0000_0000_00ff_00ff;
-    let right = board & 0xff00_ff00_0000_0000;
-
-    keep | (left << 40) | (right >> 40)
-}
-
 pub fn do_move(board: u64) -> u64 {
     (0..4)
         .map(|i| {
@@ -141,27 +118,27 @@ pub fn do_move(board: u64) -> u64 {
 }
 
 fn move_up(board: u64) -> u64 {
-    let board = transpose_board(board);
+    let board = super::transpose_board(board);
 
     let new_board = do_move(board);
 
-    transpose_board(new_board)
+    super::transpose_board(new_board)
 }
 
 fn move_down(board: u64) -> u64 {
-    let board = transpose_rotate_board(board);
+    let board = super::transpose_rotate_board(board);
 
     let new_board = do_move(board);
 
-    transpose_rotate_board(new_board)
+    super::transpose_rotate_board(new_board)
 }
 
 fn move_right(board: u64) -> u64 {
-    let board = mirror_board(board);
+    let board = super::mirror_board(board);
 
     let new_board = do_move(board);
 
-    mirror_board(new_board)
+    super::mirror_board(new_board)
 }
 
 fn move_left(board: u64) -> u64 {

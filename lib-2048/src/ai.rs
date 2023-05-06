@@ -14,7 +14,7 @@ const MOVE_FUNCTIONS: [fn(u64) -> Option<NonZeroU64>; 4] =
     [move_up, move_down, move_right, move_left];
 
 fn move_up(board: u64) -> Option<NonZeroU64> {
-    let board = logic::transpose_board(board);
+    let board = crate::transpose_board(board);
 
     let new_board = logic::do_move(board);
 
@@ -24,7 +24,7 @@ fn move_up(board: u64) -> Option<NonZeroU64> {
 }
 
 fn move_down(board: u64) -> Option<NonZeroU64> {
-    let board = logic::transpose_rotate_board(board);
+    let board = crate::transpose_rotate_board(board);
 
     let new_board = logic::do_move(board);
 
@@ -34,7 +34,7 @@ fn move_down(board: u64) -> Option<NonZeroU64> {
 }
 
 fn move_right(board: u64) -> Option<NonZeroU64> {
-    let board = logic::mirror_board(board);
+    let board = crate::mirror_board(board);
 
     let new_board = logic::do_move(board);
 
