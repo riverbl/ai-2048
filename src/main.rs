@@ -27,6 +27,8 @@ use lib_2048::{
 
 mod render;
 
+const LOSS_WEIGHT: f64 = -19.47796270638233;
+
 fn play_interactive(
     out: &mut (impl AsRawFd + Write),
     input: &mut impl Read,
@@ -213,6 +215,7 @@ fn main() -> io::Result<()> {
         BenchExpectimax(u32),
         BenchMonteCarlo(u32),
         BenchRandom,
+        RandomBenchExpectimax(u32),
     }
 
     let mut stdout = io::stdout().lock();
@@ -252,6 +255,13 @@ fn main() -> io::Result<()> {
             Mode::BenchMonteCarlo(iterations)
         }
         [arg] if arg == "--br" => Mode::BenchRandom,
+        [arg, depth_str] if arg == "--rbe" => {
+            let Ok(depth) = depth_str.parse() else {
+                return writeln!(stdout, "Invalid depth {depth_str}");
+            };
+
+            Mode::RandomBenchExpectimax(depth)
+        }
         _ => return writeln!(stdout, "Invalid arguments"),
     };
 
@@ -259,7 +269,7 @@ fn main() -> io::Result<()> {
         Mode::Interactive => play_interactive(&mut stdout, &mut stdin, ChaCha8Rng::from_entropy()),
         Mode::Expectimax(depth) => play_ai(
             &mut stdout,
-            ExpectimaxAi::new(depth, 1.0, |board| logic::eval_score(board).into()),
+            ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
             ChaCha8Rng::from_entropy(),
         ),
         Mode::MonteCarlo(iterations) => play_ai(
@@ -279,7 +289,7 @@ fn main() -> io::Result<()> {
                 .map(ChaCha8Rng::from_seed)
                 .map(|rng| {
                     (
-                        ExpectimaxAi::new(depth, 1.0, |board| logic::eval_score(board).into()),
+                        ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
                         rng,
                     )
                 });
@@ -301,6 +311,20 @@ fn main() -> io::Result<()> {
                 .map(ChaCha8Rng::from_seed)
                 .array_chunks()
                 .map(|[game_rng, ai_rng]| (RandomAi::new(ai_rng), game_rng));
+
+            bench_ai(&mut stdout, init_iter)
+        }
+        Mode::RandomBenchExpectimax(depth) => {
+            let init_iter = rng_seeds::SEEDS
+                .into_iter()
+                .step_by(2)
+                .map(|_| ChaCha8Rng::from_entropy())
+                .map(|rng| {
+                    (
+                        ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
+                        rng,
+                    )
+                });
 
             bench_ai(&mut stdout, init_iter)
         }

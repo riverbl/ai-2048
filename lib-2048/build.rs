@@ -8,23 +8,23 @@ use std::{
 
 use core_2048::metrics;
 
-const MID_SCORE_WEIGHT: f32 = 0.0;
-const EDGE_SCORE_WEIGHT: f32 = 0.0;
-const CORNER_SCORE_WEIGHT: f32 = 0.0;
-const MID_EMPTY_COUNT_WEIGHT: f32 = 0.0;
-const EDGE_EMPTY_COUNT_WEIGHT: f32 = 0.0;
-const CORNER_EMPTY_COUNT_WEIGHT: f32 = 0.0;
-const MID_MERGE_SCORE_WEIGHT: f32 = 0.0;
-const SIDE_MERGE_SCORE_WEIGHT: f32 = 0.0;
-const EDGE_MERGE_SCORE_WEIGHT: f32 = 0.0;
-const CORNER_MERGE_SCORE_WEIGHT: f32 = 0.0;
-const MID_MERGE_COUNT_WEIGHT: f32 = 0.0;
-const SIDE_MERGE_COUNT_WEIGHT: f32 = 0.0;
-const EDGE_MERGE_COUNT_WEIGHT: f32 = 0.0;
-const CORNER_MERGE_COUNT_WEIGHT: f32 = 0.0;
-const MID_MONOTONICITY_SCORE_WEIGHT: f32 = 0.0;
-const EDGE_MONOTONICITY_SCORE_WEIGHT: f32 = 0.0;
-const MONOTONICITY_SCORE_POWER: f64 = 1.0;
+const MID_SCORE_WEIGHT: f64 = -0.7641253761579963;
+const EDGE_SCORE_WEIGHT: f64 = 4.891970296754977;
+const CORNER_SCORE_WEIGHT: f64 = 18.297627391142523;
+const MID_EMPTY_COUNT_WEIGHT: f64 = -4.423511611116675;
+const EDGE_EMPTY_COUNT_WEIGHT: f64 = 7.422097709977976;
+const CORNER_EMPTY_COUNT_WEIGHT: f64 = 1.1521457387314034;
+const MID_MERGE_SCORE_WEIGHT: f64 = 9.063721663586657;
+const SIDE_MERGE_SCORE_WEIGHT: f64 = 10.52644778019821;
+const EDGE_MERGE_SCORE_WEIGHT: f64 = 5.569723800059399;
+const CORNER_MERGE_SCORE_WEIGHT: f64 = 9.341016151863265;
+const MID_MERGE_COUNT_WEIGHT: f64 = 2.0608543677941777;
+const SIDE_MERGE_COUNT_WEIGHT: f64 = 5.642877221610336;
+const EDGE_MERGE_COUNT_WEIGHT: f64 = 3.3982117104457856;
+const CORNER_MERGE_COUNT_WEIGHT: f64 = 0.5332129832484898;
+const MID_MONOTONICITY_SCORE_WEIGHT: f64 = -20.442671573389255;
+const EDGE_MONOTONICITY_SCORE_WEIGHT: f64 = -4.963556713995992;
+const MONOTONICITY_SCORE_POWER: f64 = 1.4017817082423036;
 
 fn move_row(row: u16) -> u16 {
     let shift = row.trailing_zeros() & !0x3;
@@ -63,89 +63,51 @@ fn move_row(row: u16) -> u16 {
 }
 
 fn mid_row_metrics(row: u16) -> (f32, f32) {
-    let mid_indices = [4, 8];
-    let edge_indices = [0, 12];
-
-    let mid_score: u32 = mid_indices
-        .into_iter()
-        .map(|i| metrics::cell_score((row >> i) as u8 & 0xf))
-        .sum();
-
-    let edge_score: u32 = edge_indices
-        .into_iter()
-        .map(|i| metrics::cell_score((row >> i) as u8 & 0xf))
-        .sum();
-
-    let mid_empty_count = mid_indices
-        .into_iter()
-        .filter(|i| (row >> i) & 0xf == 0)
-        .count() as u32;
-
-    let edge_empty_count = edge_indices
-        .into_iter()
-        .filter(|i| (row >> i) & 0xf == 0)
-        .count() as u32;
+    let (mid_score, edge_score) = metrics::row_scores(row);
+    let (mid_empty_count, edge_empty_count) = metrics::row_empty_counts(row);
 
     let (mid_merge_score, side_merge_score) = metrics::row_merge_scores(row);
-
     let (mid_merge_count, side_merge_count) = metrics::row_merge_counts(row);
 
     let monotonicity_score = metrics::row_monotonicity_score(row, MONOTONICITY_SCORE_POWER);
 
-    (
-        mid_score as f32 * MID_SCORE_WEIGHT * 0.5
-            + edge_score as f32 * EDGE_SCORE_WEIGHT * 0.5
-            + mid_merge_score as f32 * MID_MERGE_SCORE_WEIGHT
-            + side_merge_score as f32 * SIDE_MERGE_SCORE_WEIGHT
-            + monotonicity_score as f32 * MID_MONOTONICITY_SCORE_WEIGHT,
-        mid_empty_count as f32 * MID_EMPTY_COUNT_WEIGHT * 0.5
-            + edge_empty_count as f32 * EDGE_EMPTY_COUNT_WEIGHT * 0.5
-            + mid_merge_count as f32 * MID_MERGE_COUNT_WEIGHT
-            + side_merge_count as f32 * SIDE_MERGE_COUNT_WEIGHT,
-    )
+    let (mid_metric, edge_metric) = (
+        f64::from(mid_score) * MID_SCORE_WEIGHT * 0.5
+            + f64::from(edge_score) * EDGE_SCORE_WEIGHT * 0.5
+            + f64::from(mid_merge_score) * MID_MERGE_SCORE_WEIGHT
+            + f64::from(side_merge_score) * SIDE_MERGE_SCORE_WEIGHT
+            + monotonicity_score * MID_MONOTONICITY_SCORE_WEIGHT,
+        f64::from(mid_empty_count) * MID_EMPTY_COUNT_WEIGHT * 0.5
+            + f64::from(edge_empty_count) * EDGE_EMPTY_COUNT_WEIGHT * 0.5
+            + f64::from(mid_merge_count) * MID_MERGE_COUNT_WEIGHT
+            + f64::from(side_merge_count) * SIDE_MERGE_COUNT_WEIGHT,
+    );
+
+    (mid_metric as _, edge_metric as _)
 }
 
 fn edge_row_metrics(row: u16) -> (f32, f32) {
-    let edge_indices = [4, 8];
-    let corner_indices = [0, 12];
-
-    let edge_score: u32 = edge_indices
-        .into_iter()
-        .map(|i| metrics::cell_score((row >> i) as u8 & 0xf))
-        .sum();
-
-    let corner_score: u32 = edge_indices
-        .into_iter()
-        .map(|i| metrics::cell_score((row >> i) as u8 & 0xf))
-        .sum();
-
-    let edge_empty_count = edge_indices
-        .into_iter()
-        .filter(|i| (row >> i) & 0xf == 0)
-        .count() as u32;
-
-    let corner_empty_count = corner_indices
-        .into_iter()
-        .filter(|i| (row >> i) & 0xf == 0)
-        .count() as u32;
+    let (edge_score, corner_score) = metrics::row_scores(row);
+    let (edge_empty_count, corner_empty_count) = metrics::row_empty_counts(row);
 
     let (edge_merge_score, corner_merge_score) = metrics::row_merge_scores(row);
-
     let (edge_merge_count, corner_merge_count) = metrics::row_merge_counts(row);
 
     let monotonicity_score = metrics::row_monotonicity_score(row, MONOTONICITY_SCORE_POWER);
 
-    (
-        edge_score as f32 * EDGE_SCORE_WEIGHT * 0.5
-            + corner_score as f32 * CORNER_SCORE_WEIGHT * 0.5
-            + edge_merge_score as f32 * EDGE_MERGE_SCORE_WEIGHT
-            + corner_merge_score as f32 * CORNER_MERGE_SCORE_WEIGHT
-            + monotonicity_score as f32 * EDGE_MONOTONICITY_SCORE_WEIGHT,
-        edge_empty_count as f32 * EDGE_EMPTY_COUNT_WEIGHT * 0.5
-            + corner_empty_count as f32 * CORNER_EMPTY_COUNT_WEIGHT * 0.5
-            + edge_merge_count as f32 * EDGE_MERGE_COUNT_WEIGHT
-            + corner_merge_count as f32 * CORNER_MERGE_COUNT_WEIGHT,
-    )
+    let (edge_metric, corner_metric) = (
+        f64::from(edge_score) * EDGE_SCORE_WEIGHT * 0.5
+            + f64::from(corner_score) * CORNER_SCORE_WEIGHT * 0.5
+            + f64::from(edge_merge_score) * EDGE_MERGE_SCORE_WEIGHT
+            + f64::from(corner_merge_score) * CORNER_MERGE_SCORE_WEIGHT
+            + monotonicity_score * EDGE_MONOTONICITY_SCORE_WEIGHT,
+        f64::from(edge_empty_count) * EDGE_EMPTY_COUNT_WEIGHT * 0.5
+            + f64::from(corner_empty_count) * CORNER_EMPTY_COUNT_WEIGHT * 0.5
+            + f64::from(edge_merge_count) * EDGE_MERGE_COUNT_WEIGHT
+            + f64::from(corner_merge_count) * CORNER_MERGE_COUNT_WEIGHT,
+    );
+
+    (edge_metric as _, corner_metric as _)
 }
 
 fn write_table<const N: usize>(

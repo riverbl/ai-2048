@@ -14,7 +14,16 @@ static SCORE_TABLE: [u32; 1 << 8] = {
 
     unsafe { mem::transmute_copy(TABLE) }
 };
-// static METRICS_TABLE: [i8; 1 << 16] = include!(concat!(env!("OUT_DIR"), "/metrics_table.rs"));
+static MID_METRICS_TABLE: [(f32, f32); 1 << 16] = {
+    static TABLE: &[u8; 1 << 19] = include_bytes!(concat!(env!("OUT_DIR"), "/mid_metrics_table"));
+
+    unsafe { mem::transmute_copy(TABLE) }
+};
+static EDGE_METRICS_TABLE: [(f32, f32); 1 << 16] = {
+    static TABLE: &[u8; 1 << 19] = include_bytes!(concat!(env!("OUT_DIR"), "/edge_metrics_table"));
+
+    unsafe { mem::transmute_copy(TABLE) }
+};
 
 const MOVE_FUNCTIONS: [fn(u64) -> u64; 4] = [move_up, move_down, move_right, move_left];
 
@@ -84,27 +93,35 @@ pub fn eval_score(board: u64) -> u32 {
     })
 }
 
-// pub fn eval_metrics(board: u64) -> i32 {
-//     let row_metrics: i32 = (0..4)
-//         .map(|i| -> i32 {
-//             let row = (board >> (i * 16)) & 0xffff;
+pub fn eval_metrics(board: u64) -> f64 {
+    let score: f64 = eval_score(board).into();
 
-//             METRICS_TABLE[row as usize].into()
-//         })
-//         .sum();
+    [board, crate::transpose_board(board)]
+        .into_iter()
+        .fold(0.0, |total_metrics, board| {
+            let mid_metrics: f64 = [16, 32]
+                .into_iter()
+                .map(|i| {
+                    let row = (board >> i) & 0xffff;
+                    let (score_metrics, count_metrics) = MID_METRICS_TABLE[row as usize];
 
-//     let board = transpose_board(board);
+                    f64::from(count_metrics).mul_add(score, score_metrics.into())
+                })
+                .sum();
 
-//     let column_metrics: i32 = (0..4)
-//         .map(|i| -> i32 {
-//             let column = (board >> (i * 16)) & 0xffff;
+            let edge_metrics: f64 = [0, 48]
+                .into_iter()
+                .map(|i| {
+                    let row = (board >> i) & 0xffff;
+                    let (score_metrics, count_metrics) = EDGE_METRICS_TABLE[row as usize];
 
-//             METRICS_TABLE[column as usize].into()
-//         })
-//         .sum();
+                    f64::from(count_metrics).mul_add(score, score_metrics.into())
+                })
+                .sum();
 
-//     row_metrics + column_metrics
-// }
+            total_metrics + mid_metrics + edge_metrics
+        })
+}
 
 pub fn do_move(board: u64) -> u64 {
     (0..4)
@@ -118,27 +135,27 @@ pub fn do_move(board: u64) -> u64 {
 }
 
 fn move_up(board: u64) -> u64 {
-    let board = super::transpose_board(board);
+    let board = crate::transpose_board(board);
 
     let new_board = do_move(board);
 
-    super::transpose_board(new_board)
+    crate::transpose_board(new_board)
 }
 
 fn move_down(board: u64) -> u64 {
-    let board = super::transpose_rotate_board(board);
+    let board = crate::transpose_rotate_board(board);
 
     let new_board = do_move(board);
 
-    super::transpose_rotate_board(new_board)
+    crate::transpose_rotate_board(new_board)
 }
 
 fn move_right(board: u64) -> u64 {
-    let board = super::mirror_board(board);
+    let board = crate::mirror_board(board);
 
     let new_board = do_move(board);
 
-    super::mirror_board(new_board)
+    crate::mirror_board(new_board)
 }
 
 fn move_left(board: u64) -> u64 {

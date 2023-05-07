@@ -1,7 +1,38 @@
 use std::cmp;
 
+const ROW_MID_INDICES: [u32; 2] = [4, 8];
+const ROW_SIDE_INDICES: [u32; 2] = [0, 12];
+
 pub fn cell_score(cell: u8) -> u32 {
     u32::from(cell.saturating_sub(1)) * (1 << cell)
+}
+
+pub fn row_scores(row: u16) -> (u32, u32) {
+    let mid_score: u32 = ROW_MID_INDICES
+        .into_iter()
+        .map(|i| cell_score((row >> i) as u8 & 0xf))
+        .sum();
+
+    let side_score: u32 = ROW_SIDE_INDICES
+        .into_iter()
+        .map(|i| cell_score((row >> i) as u8 & 0xf))
+        .sum();
+
+    (mid_score, side_score)
+}
+
+pub fn row_empty_counts(row: u16) -> (u32, u32) {
+    let mid_empty_count = ROW_MID_INDICES
+        .into_iter()
+        .filter(|i| (row >> i) & 0xf == 0)
+        .count() as u32;
+
+    let side_empty_count = ROW_SIDE_INDICES
+        .into_iter()
+        .filter(|i| (row >> i) & 0xf == 0)
+        .count() as u32;
+
+    (mid_empty_count, side_empty_count)
 }
 
 pub fn row_merge_counts(row: u16) -> (u32, u32) {
