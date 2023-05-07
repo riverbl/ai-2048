@@ -163,9 +163,7 @@ fn write_table<const N: usize>(
 }
 
 fn write_move_table(file_path: &impl AsRef<Path>) -> io::Result<()> {
-    let rows = (0..=u16::MAX)
-        .map(move_row)
-        .map(|row| -> [u8; 2] { unsafe { mem::transmute(row) } });
+    let rows = (0..=u16::MAX).map(move_row).map(|row| row.to_ne_bytes());
 
     write_table(file_path, rows)
 }
@@ -184,7 +182,7 @@ fn write_score_table(file_path: &impl AsRef<Path>) -> io::Result<()> {
                     }
             })
         })
-        .map(|score| -> [u8; 4] { unsafe { mem::transmute(score) } });
+        .map(|score| score.to_ne_bytes());
 
     write_table(file_path, scores)
 }
