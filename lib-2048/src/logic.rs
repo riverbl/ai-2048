@@ -151,11 +151,11 @@ fn move_down(board: u64) -> u64 {
 }
 
 fn move_right(board: u64) -> u64 {
-    let board = crate::mirror_board(board);
+    let board = crate::rotate_board(board);
 
     let new_board = do_move(board);
 
-    crate::mirror_board(new_board)
+    crate::rotate_board(new_board)
 }
 
 fn move_left(board: u64) -> u64 {

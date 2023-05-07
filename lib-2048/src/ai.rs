@@ -34,7 +34,7 @@ fn move_down(board: u64) -> Option<NonZeroU64> {
 }
 
 fn move_right(board: u64) -> Option<NonZeroU64> {
-    let board = crate::mirror_board(board);
+    let board = crate::rotate_board(board);
 
     let new_board = logic::do_move(board);
 
