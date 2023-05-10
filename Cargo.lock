@@ -173,7 +173,6 @@ name = "optimise-2048"
 version = "0.1.0"
 dependencies = [
  "lib-2048",
- "libc",
  "libm",
  "nalgebra",
  "rand",

@@ -68,24 +68,21 @@ pub fn row_merge_scores(row: u16) -> (u32, u32) {
     (mid_merge_score, side_merge_score)
 }
 
-pub fn row_monotonicity_score(row: u16, power: f64) -> f64 {
+pub fn row_monotonicity_score(row: u16) -> u32 {
     let scores = [0, 4, 8, 12]
         .map(|i| (row >> i) as u8 & 0xf)
         .map(cell_score);
 
-    let (increasing_score, decreasing_score) = scores
-        .map(|score| f64::powf(score.into(), power))
-        .array_windows()
-        .fold(
-            (0.0, 0.0),
-            |(increasing_score, decreasing_score), [num1, num2]| {
-                if num1 > num2 {
-                    (increasing_score, decreasing_score + num1 - num2)
-                } else {
-                    (increasing_score + num2 - num1, decreasing_score)
-                }
-            },
-        );
+    let (increasing_score, decreasing_score) = scores.array_windows().fold(
+        (0, 0),
+        |(increasing_score, decreasing_score), [num1, num2]| {
+            if num1 > num2 {
+                (increasing_score, decreasing_score + num1 - num2)
+            } else {
+                (increasing_score + num2 - num1, decreasing_score)
+            }
+        },
+    );
 
-    cmp::min_by(increasing_score, decreasing_score, f64::total_cmp)
+    cmp::min(increasing_score, decreasing_score)
 }

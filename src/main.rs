@@ -15,6 +15,7 @@ use std::{
     io::{self, Read, Write},
     ops::ControlFlow,
     os::fd::AsRawFd,
+    time::Instant,
 };
 
 use rand::{Rng, SeedableRng};
@@ -27,7 +28,7 @@ use lib_2048::{
 
 mod render;
 
-const LOSS_WEIGHT: f64 = -19.47796270638233;
+const LOSS_WEIGHT: f64 = -31.64904880594034;
 
 fn play_interactive(
     out: &mut (impl AsRawFd + Write),
@@ -113,23 +114,24 @@ fn play_ai(out: &mut (impl AsRawFd + Write), mut ai: impl Ai, mut rng: impl Rng)
     out.write_all(b"Game over\n")
 }
 
-fn bench_ai<A, R, I>(out: &mut impl Write, init_iter: I) -> io::Result<()>
+fn bench_ai<W, A, R, I>(out: &mut W, init_iter: I) -> io::Result<()>
 where
+    W: Write,
     A: Ai,
     R: Rng,
     I: IntoIterator<Item = (A, R)>,
 {
     struct Stats {
-        runs: u32,
+        run_count: u32,
         max_turns: u32,
         max_score: u32,
         min_turns: u32,
         min_score: u32,
-        avg_turns: f64,
-        avg_score: f64,
+        total_turns: u32,
+        total_score: u32,
     }
 
-    let mut bench_results = init_iter.into_iter().map(|(mut ai, mut rng)| {
+    let bench_results = init_iter.into_iter().map(|(mut ai, mut rng)| {
         let board = logic::spawn_square(&mut rng, 0);
 
         control_flow_helper::loop_try_fold((0, 0, board), |(turns, score, board)| {
@@ -145,65 +147,84 @@ where
         })
     });
 
-    if let Some((first_turns, first_score)) = bench_results.next() {
-        let init_stats = Stats {
-            runs: 1,
-            max_turns: first_turns,
-            max_score: first_score,
-            min_turns: first_turns,
-            min_score: first_score,
-            avg_turns: f64::from(first_turns),
-            avg_score: f64::from(first_score),
-        };
+    // Iterators are lazy, so we measure the time taken to iterate the iterator, not the time
+    // taken to create it.
+    let start = Instant::now();
 
-        let Stats {
-            runs,
+    let init_stats = Stats {
+        run_count: 0,
+        max_turns: 0,
+        max_score: 0,
+        min_turns: u32::MAX,
+        min_score: u32::MAX,
+        total_turns: 0,
+        total_score: 0,
+    };
+
+    let Stats {
+        run_count,
+        max_turns,
+        max_score,
+        min_turns,
+        min_score,
+        total_turns,
+        total_score,
+    } = bench_results.fold(init_stats, |stats, (turns, score)| {
+        let run_count = stats.run_count + 1;
+
+        let max_turns = cmp::max(turns, stats.max_turns);
+        let max_score = cmp::max(score, stats.max_score);
+
+        let min_turns = cmp::min(turns, stats.min_turns);
+        let min_score = cmp::min(score, stats.min_score);
+
+        let total_turns = stats.total_turns + turns;
+
+        let total_score = stats.total_score + score;
+
+        Stats {
+            run_count,
             max_turns,
             max_score,
             min_turns,
             min_score,
-            avg_turns,
-            avg_score,
-        } = bench_results.fold(init_stats, |stats, (turns, score)| {
-            let runs = stats.runs + 1;
+            total_turns,
+            total_score,
+        }
+    });
 
-            let max_turns = cmp::max(turns, stats.max_turns);
-            let max_score = cmp::max(score, stats.max_score);
+    let time_taken = (Instant::now() - start).as_secs_f64();
 
-            let min_turns = cmp::min(turns, stats.min_turns);
-            let min_score = cmp::min(score, stats.min_score);
-
-            let avg_turns = stats
-                .avg_turns
-                .mul_add(f64::from(stats.runs), f64::from(turns))
-                / f64::from(runs);
-
-            let avg_score = stats
-                .avg_score
-                .mul_add(f64::from(stats.runs), f64::from(score))
-                / f64::from(runs);
-
-            Stats {
-                runs,
-                max_turns,
-                max_score,
-                min_turns,
-                min_score,
-                avg_turns,
-                avg_score,
-            }
-        });
+    if run_count > 0 {
+        let avg_turns = f64::from(total_turns) / f64::from(run_count);
+        let avg_score = f64::from(total_score) / f64::from(run_count);
+        let turns_per_second = f64::from(total_turns) / time_taken;
 
         write!(
             out,
-            "Played {runs} games:\n\
-        Max turns {max_turns}, max score {max_score}\n\
-        Min turns {min_turns}, min score {min_score}\n\
-        Average turns {avg_turns}, average score {avg_score}\n"
+            "Played {run_count} games:\n\
+            Max turns {max_turns}, max score {max_score}\n\
+            Min turns {min_turns}, min score {min_score}\n\
+            Average turns {avg_turns}, average score {avg_score}\n\
+            Time taken {time_taken}\n\
+            Turns per second {turns_per_second}\n"
         )
     } else {
         writeln!(out, "Empty initialisation iterator")
     }
+}
+
+fn bench_ai_from_seeds<W, R, I, A, F>(out: &mut W, seeds: I, f: F) -> io::Result<()>
+where
+    W: Write,
+    R: Rng + SeedableRng,
+    I: IntoIterator<Item = R::Seed>,
+    A: Ai,
+    F: FnMut([R::Seed; 2]) -> (A, R),
+{
+    let init_iter = seeds.into_iter().array_chunks().map(f);
+
+    bench_ai(out, init_iter)
 }
 
 fn main() -> io::Result<()> {
@@ -215,7 +236,7 @@ fn main() -> io::Result<()> {
         BenchExpectimax(u32),
         BenchMonteCarlo(u32),
         BenchRandom,
-        RandomBenchExpectimax(u32),
+        RandomBenchExpectimax(u32, u32),
     }
 
     let mut stdout = io::stdout().lock();
@@ -255,12 +276,16 @@ fn main() -> io::Result<()> {
             Mode::BenchMonteCarlo(iterations)
         }
         [arg] if arg == "--br" => Mode::BenchRandom,
-        [arg, depth_str] if arg == "--rbe" => {
+        [arg, count_str, depth_str] if arg == "--rbe" => {
+            let Ok(count) = count_str.parse() else {
+                return writeln!(stdout, "Invalid count {count_str}");
+            };
+
             let Ok(depth) = depth_str.parse() else {
                 return writeln!(stdout, "Invalid depth {depth_str}");
             };
 
-            Mode::RandomBenchExpectimax(depth)
+            Mode::RandomBenchExpectimax(count, depth)
         }
         _ => return writeln!(stdout, "Invalid arguments"),
     };
@@ -283,48 +308,32 @@ fn main() -> io::Result<()> {
             ChaCha8Rng::from_entropy(),
         ),
         Mode::BenchExpectimax(depth) => {
-            let init_iter = rng_seeds::SEEDS
-                .into_iter()
-                .step_by(2)
-                .map(ChaCha8Rng::from_seed)
-                .map(|rng| {
-                    (
-                        ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
-                        rng,
-                    )
-                });
-
-            bench_ai(&mut stdout, init_iter)
+            bench_ai_from_seeds(&mut stdout, rng_seeds::SEEDS, |[seed, _]| {
+                (
+                    ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
+                    ChaCha8Rng::from_seed(seed),
+                )
+            })
         }
         Mode::BenchMonteCarlo(iterations) => {
-            let init_iter = rng_seeds::SEEDS
-                .into_iter()
-                .map(ChaCha8Rng::from_seed)
-                .array_chunks()
-                .map(|[game_rng, ai_rng]| (MonteCarloAi::new(ai_rng, iterations), game_rng));
+            bench_ai_from_seeds(&mut stdout, rng_seeds::SEEDS, |seeds| {
+                let [game_rng, ai_rng] = seeds.map(ChaCha8Rng::from_seed);
 
-            bench_ai(&mut stdout, init_iter)
+                (MonteCarloAi::new(ai_rng, iterations), game_rng)
+            })
         }
-        Mode::BenchRandom => {
-            let init_iter = rng_seeds::SEEDS
-                .into_iter()
-                .map(ChaCha8Rng::from_seed)
-                .array_chunks()
-                .map(|[game_rng, ai_rng]| (RandomAi::new(ai_rng), game_rng));
+        Mode::BenchRandom => bench_ai_from_seeds(&mut stdout, rng_seeds::SEEDS, |seeds| {
+            let [game_rng, ai_rng] = seeds.map(ChaCha8Rng::from_seed);
 
-            bench_ai(&mut stdout, init_iter)
-        }
-        Mode::RandomBenchExpectimax(depth) => {
-            let init_iter = rng_seeds::SEEDS
-                .into_iter()
-                .step_by(2)
-                .map(|_| ChaCha8Rng::from_entropy())
-                .map(|rng| {
-                    (
-                        ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
-                        rng,
-                    )
-                });
+            (RandomAi::new(ai_rng), game_rng)
+        }),
+        Mode::RandomBenchExpectimax(count, depth) => {
+            let init_iter = (0..count).map(|_| ChaCha8Rng::from_entropy()).map(|rng| {
+                (
+                    ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
+                    rng,
+                )
+            });
 
             bench_ai(&mut stdout, init_iter)
         }

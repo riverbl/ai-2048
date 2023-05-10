@@ -1,7 +1,6 @@
 use std::{
     io::{self, Write},
     ops::ControlFlow,
-    sync::atomic::{AtomicBool, Ordering},
     thread,
 };
 
@@ -41,17 +40,16 @@ pub struct Weights {
     pub corner_merge_count_weight: f64,
     pub mid_monotonicity_score_weight: f64,
     pub edge_monotonicity_score_weight: f64,
-    pub monotonicity_score_power: f64,
     pub loss_weight: f64,
 }
 
 impl Weights {
-    const N: usize = 18;
+    const N: usize = 17;
 }
 
 impl From<VectorN> for Weights {
     fn from(value: VectorN) -> Self {
-        let [[mid_score_weight, edge_score_weight, corner_score_weight, mid_empty_count_weight, edge_empty_count_weight, corner_empty_count_weight, mid_merge_score_weight, side_merge_score_weight, edge_merge_score_weight, corner_merge_score_weight, mid_merge_count_weight, side_merge_count_weight, edge_merge_count_weight, corner_merge_count_weight, mid_monotonicity_score_weight, edge_monotonicity_score_weight, monotonicity_score_power, loss_weight]] =
+        let [[mid_score_weight, edge_score_weight, corner_score_weight, mid_empty_count_weight, edge_empty_count_weight, corner_empty_count_weight, mid_merge_score_weight, side_merge_score_weight, edge_merge_score_weight, corner_merge_score_weight, mid_merge_count_weight, side_merge_count_weight, edge_merge_count_weight, corner_merge_count_weight, mid_monotonicity_score_weight, edge_monotonicity_score_weight, loss_weight]] =
             value.data.0;
 
         Self {
@@ -71,7 +69,6 @@ impl From<VectorN> for Weights {
             corner_merge_count_weight,
             mid_monotonicity_score_weight,
             edge_monotonicity_score_weight,
-            monotonicity_score_power,
             loss_weight,
         }
     }
@@ -96,7 +93,6 @@ impl From<Weights> for VectorN {
             corner_merge_count_weight,
             mid_monotonicity_score_weight,
             edge_monotonicity_score_weight,
-            monotonicity_score_power,
             loss_weight,
         }: Weights,
     ) -> Self {
@@ -117,7 +113,6 @@ impl From<Weights> for VectorN {
             corner_merge_count_weight,
             mid_monotonicity_score_weight,
             edge_monotonicity_score_weight,
-            monotonicity_score_power,
             loss_weight
         ]
     }
@@ -140,7 +135,6 @@ fn eval_board(
     corner_merge_count_weight: f64,
     mid_monotonicity_score_weight: f64,
     edge_monotonicity_score_weight: f64,
-    monotonicity_score_power: f64,
     board: u64,
 ) -> f64 {
     let mid_row_metrics = |row| -> (f32, f32) {
@@ -150,14 +144,14 @@ fn eval_board(
         let (mid_merge_score, side_merge_score) = metrics::row_merge_scores(row);
         let (mid_merge_count, side_merge_count) = metrics::row_merge_counts(row);
 
-        let monotonicity_score = metrics::row_monotonicity_score(row, monotonicity_score_power);
+        let monotonicity_score = metrics::row_monotonicity_score(row);
 
         let (mid_metric, edge_metric) = (
             f64::from(mid_score) * mid_score_weight * 0.5
                 + f64::from(edge_score) * edge_score_weight * 0.5
                 + f64::from(mid_merge_score) * mid_merge_score_weight
                 + f64::from(side_merge_score) * side_merge_score_weight
-                + monotonicity_score * mid_monotonicity_score_weight,
+                + f64::from(monotonicity_score) * mid_monotonicity_score_weight,
             f64::from(mid_empty_count) * mid_empty_count_weight * 0.5
                 + f64::from(edge_empty_count) * edge_empty_count_weight * 0.5
                 + f64::from(mid_merge_count) * mid_merge_count_weight
@@ -174,14 +168,14 @@ fn eval_board(
         let (edge_merge_score, corner_merge_score) = metrics::row_merge_scores(row);
         let (edge_merge_count, corner_merge_count) = metrics::row_merge_counts(row);
 
-        let monotonicity_score = metrics::row_monotonicity_score(row, monotonicity_score_power);
+        let monotonicity_score = metrics::row_monotonicity_score(row);
 
         let (edge_metric, corner_metric) = (
             f64::from(edge_score) * edge_score_weight * 0.5
                 + f64::from(corner_score) * corner_score_weight * 0.5
                 + f64::from(edge_merge_score) * edge_merge_score_weight
                 + f64::from(corner_merge_score) * corner_merge_score_weight
-                + monotonicity_score * edge_monotonicity_score_weight,
+                + f64::from(monotonicity_score) * edge_monotonicity_score_weight,
             f64::from(edge_empty_count) * edge_empty_count_weight * 0.5
                 + f64::from(corner_empty_count) * corner_empty_count_weight * 0.5
                 + f64::from(edge_merge_count) * edge_merge_count_weight
@@ -238,7 +232,6 @@ fn eval_fitness(
         corner_merge_count_weight,
         mid_monotonicity_score_weight,
         edge_monotonicity_score_weight,
-        monotonicity_score_power,
         loss_weight,
     }: Weights,
 ) -> f64 {
@@ -260,7 +253,6 @@ fn eval_fitness(
             corner_merge_count_weight,
             mid_monotonicity_score_weight,
             edge_monotonicity_score_weight,
-            monotonicity_score_power,
             board,
         )
     });
@@ -325,12 +317,11 @@ fn write_iteration_info(
 }
 
 pub fn optimise(
-    interrupt_recieved: &AtomicBool,
     thread_count: usize,
     per_thread: usize,
     mut sigma: f64,
     out: &mut impl Write,
-) -> io::Result<()> {
+) -> io::Result<!> {
     let mut mean: VectorN = Weights {
         mid_score_weight: 0.0,
         edge_score_weight: 0.0,
@@ -348,7 +339,6 @@ pub fn optimise(
         corner_merge_count_weight: 0.0,
         mid_monotonicity_score_weight: 0.0,
         edge_monotonicity_score_weight: 0.0,
-        monotonicity_score_power: 1.0,
         loss_weight: 0.0,
     }
     .into();
@@ -415,7 +405,7 @@ pub fn optimise(
 
     let mut g: u64 = 1;
 
-    while !interrupt_recieved.load(Ordering::Relaxed) {
+    loop {
         let SymmetricEigen {
             mut eigenvalues,
             eigenvectors,
@@ -541,6 +531,4 @@ pub fn optimise(
 
         g += 1;
     }
-
-    Ok(())
 }
