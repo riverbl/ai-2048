@@ -14,6 +14,11 @@ static SCORE_TABLE: [u32; 1 << 8] = {
 
     unsafe { mem::transmute_copy(TABLE) }
 };
+static TURN_COUNT_TABLE: [u16; 1 << 8] = {
+    static TABLE: &[u8; 1 << 9] = include_bytes!(concat!(env!("OUT_DIR"), "/turn_count_table"));
+
+    unsafe { mem::transmute_copy(TABLE) }
+};
 static MID_METRICS_TABLE: [(f32, f32); 1 << 16] = {
     static TABLE: &[u8; 1 << 19] = include_bytes!(concat!(env!("OUT_DIR"), "/mid_metrics_table"));
 
@@ -85,16 +90,43 @@ pub fn spawn_square(rng: &mut impl Rng, board: u64) -> u64 {
     }
 }
 
+/// Returns an initial board with 2 randomly spawned tiles.
+pub fn get_initial_board(rng: &mut impl Rng) -> u64 {
+    (0..2).fold(0, |board, _| spawn_square(rng, board))
+}
+
+/// Returns the heuristic turn count for `board`.
+/// The heuristic turn count is 2 greater than the number of turns that would have been taken to
+/// reach the current position if only tiles with value 2 had spawned during the game.
+/// The reason it is 2 greater is that the game starts off with 2 tiles already spawned.
+/// # Examples
+/// ```
+/// use lib_2048::logic::count_turns;
+///
+/// assert_eq!(count_turns(0x0032_1000_0a00_0000), 519);
+/// ```
+pub fn count_turns(board: u64) -> u16 {
+    (0..8).fold(0, |turn_count, i| {
+        let cell_pair = ((board >> (i * 8)) & 0xff) as usize;
+
+        turn_count + TURN_COUNT_TABLE[cell_pair]
+    })
+}
+
 pub fn eval_score(board: u64) -> u32 {
     (0..8).fold(0, |score, i| {
-        let cell = ((board >> (i * 8)) & 0xff) as usize;
+        let cell_pair = ((board >> (i * 8)) & 0xff) as usize;
 
-        score + SCORE_TABLE[cell]
+        score + SCORE_TABLE[cell_pair]
     })
 }
 
 pub fn eval_metrics(board: u64) -> f64 {
-    let score: f64 = eval_score(board).into();
+    // scale is expected to grow with number of turns roughly as fast as score.
+    let scale = {
+        let turn_count: f64 = count_turns(board).into();
+        f64::ln(turn_count) * turn_count
+    };
 
     [board, crate::transpose_board(board)]
         .into_iter()
@@ -105,7 +137,7 @@ pub fn eval_metrics(board: u64) -> f64 {
                     let row = (board >> i) & 0xffff;
                     let (score_metrics, count_metrics) = MID_METRICS_TABLE[row as usize];
 
-                    f64::from(count_metrics).mul_add(score, score_metrics.into())
+                    f64::from(count_metrics).mul_add(scale, score_metrics.into())
                 })
                 .sum();
 
@@ -115,7 +147,7 @@ pub fn eval_metrics(board: u64) -> f64 {
                     let row = (board >> i) & 0xffff;
                     let (score_metrics, count_metrics) = EDGE_METRICS_TABLE[row as usize];
 
-                    f64::from(count_metrics).mul_add(score, score_metrics.into())
+                    f64::from(count_metrics).mul_add(scale, score_metrics.into())
                 })
                 .sum();
 

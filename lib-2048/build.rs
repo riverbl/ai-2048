@@ -8,22 +8,22 @@ use std::{
 
 use core_2048::metrics;
 
-const MID_SCORE_WEIGHT: f64 = -6.566829624183395;
-const EDGE_SCORE_WEIGHT: f64 = 9.547941525806145;
-const CORNER_SCORE_WEIGHT: f64 = 10.015863132707256;
-const MID_EMPTY_COUNT_WEIGHT: f64 = -0.8179236031336172;
-const EDGE_EMPTY_COUNT_WEIGHT: f64 = 0.47633220886508887;
-const CORNER_EMPTY_COUNT_WEIGHT: f64 = 0.11754494857547416;
-const MID_MERGE_SCORE_WEIGHT: f64 = 4.883698096053587;
-const SIDE_MERGE_SCORE_WEIGHT: f64 = 3.5257356351193296;
-const EDGE_MERGE_SCORE_WEIGHT: f64 = 1.6664993473907839;
-const CORNER_MERGE_SCORE_WEIGHT: f64 = 14.909793754944317;
-const MID_MERGE_COUNT_WEIGHT: f64 = 0.4306706456130669;
-const SIDE_MERGE_COUNT_WEIGHT: f64 = 0.8287585699609993;
-const EDGE_MERGE_COUNT_WEIGHT: f64 = 0.5991578345578319;
-const CORNER_MERGE_COUNT_WEIGHT: f64 = 0.24128911247482915;
-const MID_MONOTONICITY_SCORE_WEIGHT: f64 = -34.42258906103125;
-const EDGE_MONOTONICITY_SCORE_WEIGHT: f64 = -8.635577292480262;
+const MID_SCORE_WEIGHT: f64 = -1.936638946647017;
+const EDGE_SCORE_WEIGHT: f64 = 7.212493680375125;
+const CORNER_SCORE_WEIGHT: f64 = 4.17687976384711;
+const MID_EMPTY_COUNT_WEIGHT: f64 = -0.49540619845037537;
+const EDGE_EMPTY_COUNT_WEIGHT: f64 = 0.2584263075268684;
+const CORNER_EMPTY_COUNT_WEIGHT: f64 = 0.07777447670504326;
+const MID_MERGE_SCORE_WEIGHT: f64 = 1.6429380548094086;
+const SIDE_MERGE_SCORE_WEIGHT: f64 = 1.6403055413692527;
+const EDGE_MERGE_SCORE_WEIGHT: f64 = -0.9255206619422558;
+const CORNER_MERGE_SCORE_WEIGHT: f64 = 1.101132159482675;
+const MID_MERGE_COUNT_WEIGHT: f64 = 0.2791275271179529;
+const SIDE_MERGE_COUNT_WEIGHT: f64 = 0.3777809280363918;
+const EDGE_MERGE_COUNT_WEIGHT: f64 = 0.24212929527313298;
+const CORNER_MERGE_COUNT_WEIGHT: f64 = 0.10835217887200446;
+const MID_MONOTONICITY_SCORE_WEIGHT: f64 = -9.803467519189276;
+const EDGE_MONOTONICITY_SCORE_WEIGHT: f64 = -5.81816052311786;
 
 fn move_row(row: u16) -> u16 {
     let shift = row.trailing_zeros() & !0x3;
@@ -132,20 +132,29 @@ fn write_move_table(file_path: &impl AsRef<Path>) -> io::Result<()> {
 fn write_score_table(file_path: &impl AsRef<Path>) -> io::Result<()> {
     let scores = (0..=u8::MAX)
         .map(|cell_pair| {
-            (0..2).fold(0, |score, i| {
-                let exponent = u32::from(cell_pair >> (i * 4)) & 0xf;
+            (0..2).fold(0, |score, i| -> u32 {
+                let cell = u32::from(cell_pair >> (i * 4)) & 0xf;
 
-                score
-                    + if exponent != 0 {
-                        (exponent - 1) * (1 << exponent)
-                    } else {
-                        0
-                    }
+                score + cell.saturating_sub(1) * (1 << cell)
             })
         })
         .map(|score| score.to_ne_bytes());
 
     write_table(file_path, scores)
+}
+
+fn write_turn_count_table(file_path: &impl AsRef<Path>) -> io::Result<()> {
+    let turn_counts = (0..=u8::MAX)
+        .map(|cell_pair| {
+            (0..2).fold(0, |turn_count, i| -> u16 {
+                let cell = u16::from(cell_pair >> (i * 4)) & 0xf;
+
+                turn_count + cell.checked_sub(1).map(|x| 1 << x).unwrap_or(0)
+            })
+        })
+        .map(|turn_count| turn_count.to_ne_bytes());
+
+    write_table(file_path, turn_counts)
 }
 
 fn write_metrics_table(
@@ -168,6 +177,9 @@ fn main() {
 
     let score_table_path = out_dir_path.join("score_table");
     write_score_table(&score_table_path).unwrap();
+
+    let turn_count_table_path = out_dir_path.join("turn_count_table");
+    write_turn_count_table(&turn_count_table_path).unwrap();
 
     let mid_metrics_table_path = out_dir_path.join("mid_metrics_table");
     write_metrics_table(mid_row_metrics, &mid_metrics_table_path).unwrap();

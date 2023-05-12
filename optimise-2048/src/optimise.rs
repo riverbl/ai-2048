@@ -185,7 +185,11 @@ fn eval_board(
         (edge_metric as _, corner_metric as _)
     };
 
-    let score: f64 = logic::eval_score(board).into();
+    // scale is expected to grow with number of turns roughly as fast as score.
+    let scale = {
+        let turn_count: f64 = logic::count_turns(board).into();
+        f64::ln(turn_count) * turn_count
+    };
 
     [board, lib_2048::transpose_board(board)]
         .into_iter()
@@ -196,7 +200,7 @@ fn eval_board(
                     let row = (board >> i) as u16;
                     let (score_metrics, count_metrics) = mid_row_metrics(row);
 
-                    f64::from(count_metrics).mul_add(score, score_metrics.into())
+                    f64::from(count_metrics).mul_add(scale, score_metrics.into())
                 })
                 .sum();
 
@@ -206,7 +210,7 @@ fn eval_board(
                     let row = (board >> i) as u16;
                     let (score_metrics, count_metrics) = edge_row_metrics(row);
 
-                    f64::from(count_metrics).mul_add(score, score_metrics.into())
+                    f64::from(count_metrics).mul_add(scale, score_metrics.into())
                 })
                 .sum();
 
@@ -262,7 +266,7 @@ fn eval_fitness(
         .map(|seed| {
             let mut rng = ChaCha8Rng::from_seed(seed);
 
-            let board = logic::spawn_square(&mut rng, 0);
+            let board = logic::get_initial_board(&mut rng);
 
             control_flow_helper::loop_try_fold((0, board), |(score, board)| {
                 let maybe_direction = ai.get_next_move(board);

@@ -28,14 +28,14 @@ use lib_2048::{
 
 mod render;
 
-const LOSS_WEIGHT: f64 = -31.64904880594034;
+const LOSS_WEIGHT: f64 = -4.12450317393639;
 
 fn play_interactive(
     out: &mut (impl AsRawFd + Write),
     input: &mut impl Read,
     mut rng: impl Rng,
 ) -> io::Result<()> {
-    let mut board = logic::spawn_square(&mut rng, 0);
+    let mut board = logic::get_initial_board(&mut rng);
     let mut score = 0;
 
     let mut buf = [0u8; 128];
@@ -88,7 +88,7 @@ fn play_interactive(
 }
 
 fn play_ai(out: &mut (impl AsRawFd + Write), mut ai: impl Ai, mut rng: impl Rng) -> io::Result<()> {
-    let mut board = logic::spawn_square(&mut rng, 0);
+    let mut board = logic::get_initial_board(&mut rng);
     let mut score = 0;
 
     render::setup_terminal(out)?;
@@ -132,7 +132,7 @@ where
     }
 
     let bench_results = init_iter.into_iter().map(|(mut ai, mut rng)| {
-        let board = logic::spawn_square(&mut rng, 0);
+        let board = logic::get_initial_board(&mut rng);
 
         control_flow_helper::loop_try_fold((0, 0, board), |(turns, score, board)| {
             let maybe_direction = ai.get_next_move(board);
