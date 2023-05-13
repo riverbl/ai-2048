@@ -28,7 +28,7 @@ use lib_2048::{
 
 mod render;
 
-const LOSS_WEIGHT: f64 = -4.12450317393639;
+const LOSS_WEIGHT: f64 = -3.9652309010456945;
 
 fn play_interactive(
     out: &mut (impl AsRawFd + Write),

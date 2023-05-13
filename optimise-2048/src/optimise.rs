@@ -1,4 +1,5 @@
 use std::{
+    arch::x86_64::_pdep_u32,
     io::{self, Write},
     ops::ControlFlow,
     thread,
@@ -116,6 +117,24 @@ impl From<Weights> for VectorN {
             loss_weight
         ]
     }
+}
+
+fn place_tiles(rng: &mut impl Rng, tiles: impl IntoIterator<Item = u8>) -> u64 {
+    let (board, _, _) =
+        tiles
+            .into_iter()
+            .take(16)
+            .fold((0, 16, !0), |(board, empty_count, mask), tile| {
+                let rand = rng.gen_range(0..empty_count);
+                let bit = unsafe { _pdep_u32(1 << rand, mask) };
+                let i = bit.trailing_zeros();
+
+                let tile = u64::from(tile) << (i * 4);
+
+                (board | tile, empty_count - 1, mask ^ bit)
+            });
+
+    board
 }
 
 fn eval_board(
@@ -261,13 +280,52 @@ fn eval_fitness(
         )
     });
 
-    rng_seeds::SEEDS
-        .into_iter()
-        .map(|seed| {
-            let mut rng = ChaCha8Rng::from_seed(seed);
+    let (seeds1, seeds2, seeds3, seeds4) = {
+        let (seeds1, rest) = rng_seeds::SEEDS.split_at(rng_seeds::SEEDS.len() / 4);
+        let (seeds2, rest) = rng_seeds::SEEDS.split_at(rest.len() / 3);
+        let (seeds3, seeds4) = rng_seeds::SEEDS.split_at(rest.len() / 2);
 
+        (seeds1, seeds2, seeds3, seeds4)
+    };
+
+    let initial_boards = seeds1
+        .iter()
+        .map(|&seed| {
+            let mut rng = ChaCha8Rng::from_seed(seed);
             let board = logic::get_initial_board(&mut rng);
 
+            (rng, board)
+        })
+        .chain(seeds2.iter().map(|&seed| {
+            let mut rng = ChaCha8Rng::from_seed(seed);
+            let board = {
+                let board = place_tiles(&mut rng, [0xc]);
+                logic::spawn_square(&mut rng, board)
+            };
+
+            (rng, board)
+        }))
+        .chain(seeds3.iter().map(|&seed| {
+            let mut rng = ChaCha8Rng::from_seed(seed);
+            let board = {
+                let board = place_tiles(&mut rng, [0xd]);
+                logic::spawn_square(&mut rng, board)
+            };
+
+            (rng, board)
+        }))
+        .chain(seeds4.iter().map(|&seed| {
+            let mut rng = ChaCha8Rng::from_seed(seed);
+            let board = {
+                let board = place_tiles(&mut rng, [0xd, 0xc]);
+                logic::spawn_square(&mut rng, board)
+            };
+
+            (rng, board)
+        }));
+
+    initial_boards
+        .map(|(mut rng, board)| {
             control_flow_helper::loop_try_fold((0, board), |(score, board)| {
                 let maybe_direction = ai.get_next_move(board);
 

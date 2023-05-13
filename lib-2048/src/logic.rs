@@ -1,4 +1,4 @@
-use std::{arch::x86_64::*, mem, num::NonZeroU64};
+use std::{arch::x86_64::_pext_u64, mem, num::NonZeroU64};
 
 use rand::Rng;
 
@@ -47,7 +47,15 @@ pub fn get_opponent_moves(board: u64) -> impl Iterator<Item = (u64, f64)> {
     })
 }
 
-const fn mark_empty_cells(board: u64) -> u64 {
+/// Returns an integer with the least significant bit of each nibble that is `0` in `board` set to
+/// `1` and all other bits set to `0`.
+///
+/// ```
+/// # use lib_2048::logic::mark_empty_cells;
+///
+/// assert_eq!(mark_empty_cells(0x0032_1000_0a00_0000), 0x1100_0111_1011_1111);
+/// ```
+pub const fn mark_empty_cells(board: u64) -> u64 {
     let table = board | (board >> 1);
     let table = table | (table >> 2);
 
@@ -60,7 +68,19 @@ const fn mark_empty_cells(board: u64) -> u64 {
 //     empty_cells.count_ones()
 // }
 
-fn get_empty_slots(board: u64) -> (u32, u64) {
+/// Returns a tuple where the first item is the number of `0` nibbles in `board` and the second
+/// item is an integer containing the indices of all `0` nibbles in `board`.
+///
+/// The second item contains a list of the indices of all `0` nibbles, with each index packed into
+/// a single nibble, starting with the least significant nibble of the second item, in order from
+/// the least to most significant empty nibble of `board`.
+///
+/// ```
+/// # use lib_2048::logic::get_empty_slots;
+///
+/// assert_eq!(get_empty_slots(0x0032_1000_0a00_0000), (12, 0x0000_fea9_8754_3210));
+/// ```
+pub fn get_empty_slots(board: u64) -> (u32, u64) {
     let empty_cells = mark_empty_cells(board);
 
     let empty_cells_all_ones = {
@@ -96,12 +116,15 @@ pub fn get_initial_board(rng: &mut impl Rng) -> u64 {
 }
 
 /// Returns the heuristic turn count for `board`.
+///
 /// The heuristic turn count is 2 greater than the number of turns that would have been taken to
 /// reach the current position if only tiles with value 2 had spawned during the game.
 /// The reason it is 2 greater is that the game starts off with 2 tiles already spawned.
+///
 /// # Examples
+///
 /// ```
-/// use lib_2048::logic::count_turns;
+/// # use lib_2048::logic::count_turns;
 ///
 /// assert_eq!(count_turns(0x0032_1000_0a00_0000), 519);
 /// ```
@@ -113,6 +136,18 @@ pub fn count_turns(board: u64) -> u16 {
     })
 }
 
+/// Returns the heuristic score for `board`.
+///
+/// The heuristic score is the score that a game in the current position would have if only tiles
+/// with value 2 had spawned during the game.
+///
+/// # Examples
+///
+/// ```
+/// # use lib_2048::logic::eval_score;
+///
+/// assert_eq!(eval_score(0x0032_1000_0a00_0000), 9_236);
+/// ```
 pub fn eval_score(board: u64) -> u32 {
     (0..8).fold(0, |score, i| {
         let cell_pair = ((board >> (i * 8)) & 0xff) as usize;
@@ -121,6 +156,11 @@ pub fn eval_score(board: u64) -> u32 {
     })
 }
 
+/// Returns a value indicating how 'good' the position represented by `board` is (higher is
+/// better).
+///
+/// The expectimax AI makes moves that are likely to result in a 'good' position, as determined by
+/// this function.
 pub fn eval_metrics(board: u64) -> f64 {
     // scale is expected to grow with number of turns roughly as fast as score.
     let scale = {

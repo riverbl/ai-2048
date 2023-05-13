@@ -3,9 +3,11 @@
 pub mod metrics;
 
 /// Returns the result of rotating `board` by 180 degrees.
+///
 /// # Examples
+///
 /// ```
-/// use core_2048::rotate_board;
+/// # use core_2048::rotate_board;
 ///
 /// assert_eq!(rotate_board(0xfedc_ba98_7654_3210), 0x0123_4567_89ab_cdef);
 /// ```
@@ -16,9 +18,11 @@ pub const fn rotate_board(board: u64) -> u64 {
 }
 
 /// Returns the result of reflecting `board` in the vertical axis.
+///
 /// # Examples
+///
 /// ```
-/// use core_2048::mirror_board;
+/// # use core_2048::mirror_board;
 ///
 /// assert_eq!(mirror_board(0xfedc_ba98_7654_3210), 0xcdef_89ab_4567_0123);
 /// ```
@@ -29,9 +33,11 @@ pub const fn mirror_board(board: u64) -> u64 {
 
 /// Returns the result of reflecting `board` in the diagonal axis that leaves the most and least
 /// significant nibble unchanged.
+///
 /// # Examples
+///
 /// ```
-/// use core_2048::transpose_board;
+/// # use core_2048::transpose_board;
 ///
 /// assert_eq!(transpose_board(0xfedc_ba98_7654_3210), 0xfb73_ea62_d951_c840);
 /// ```
@@ -50,9 +56,11 @@ pub const fn transpose_board(board: u64) -> u64 {
 
 /// Returns the result of reflecting `board` in the diagonal axis that swaps the most and least
 /// significant nibbles.
+///
 /// # Examples
+///
 /// ```
-/// use core_2048::{rotate_board, transpose_board, transpose_rotate_board};
+/// # use core_2048::{rotate_board, transpose_board, transpose_rotate_board};
 ///
 /// let board = 0xfedc_ba98_7654_3210;
 /// let transpose_rotated = transpose_rotate_board(board);
