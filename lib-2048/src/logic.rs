@@ -35,8 +35,11 @@ const MOVE_FUNCTIONS: [fn(u64) -> u64; 4] = [move_up, move_down, move_right, mov
 pub fn get_opponent_moves(board: u64) -> impl Iterator<Item = (u64, f64)> {
     let (slot_count, slots) = get_empty_slots(board);
 
+    let two_probability = 0.9 / f64::from(slot_count);
+    let four_probability = 0.1 / f64::from(slot_count);
+
     (0..slot_count).flat_map(move |slot_idx| {
-        [(1, 0.9), (2, 0.1)]
+        [(1, two_probability), (2, four_probability)]
             .into_iter()
             .map(move |(cell, probability)| {
                 let slot = (slots >> (slot_idx * 4)) & 0xf;
@@ -162,10 +165,10 @@ pub fn eval_score(board: u64) -> u32 {
 /// The expectimax AI makes moves that are likely to result in a 'good' position, as determined by
 /// this function.
 pub fn eval_metrics(board: u64) -> f64 {
-    // scale is expected to grow with number of turns roughly as fast as score.
+    // 1 / scale is expected to grow with number of turns roughly as fast as score.
     let scale = {
         let turn_count: f64 = count_turns(board).into();
-        f64::ln(turn_count) * turn_count
+        1.0 / (f64::ln(turn_count) * turn_count)
     };
 
     [board, crate::transpose_board(board)]
@@ -177,7 +180,7 @@ pub fn eval_metrics(board: u64) -> f64 {
                     let row = (board >> i) & 0xffff;
                     let (score_metrics, count_metrics) = MID_METRICS_TABLE[row as usize];
 
-                    f64::from(count_metrics).mul_add(scale, score_metrics.into())
+                    f64::from(score_metrics).mul_add(scale, count_metrics.into())
                 })
                 .sum();
 
@@ -187,7 +190,7 @@ pub fn eval_metrics(board: u64) -> f64 {
                     let row = (board >> i) & 0xffff;
                     let (score_metrics, count_metrics) = EDGE_METRICS_TABLE[row as usize];
 
-                    f64::from(count_metrics).mul_add(scale, score_metrics.into())
+                    f64::from(score_metrics).mul_add(scale, count_metrics.into())
                 })
                 .sum();
 

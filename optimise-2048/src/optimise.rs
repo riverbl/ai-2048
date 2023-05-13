@@ -204,10 +204,10 @@ fn eval_board(
         (edge_metric as _, corner_metric as _)
     };
 
-    // scale is expected to grow with number of turns roughly as fast as score.
+    // 1 / scale is expected to grow with number of turns roughly as fast as score.
     let scale = {
         let turn_count: f64 = logic::count_turns(board).into();
-        f64::ln(turn_count) * turn_count
+        1.0 / (f64::ln(turn_count) * turn_count)
     };
 
     [board, lib_2048::transpose_board(board)]
@@ -219,7 +219,7 @@ fn eval_board(
                     let row = (board >> i) as u16;
                     let (score_metrics, count_metrics) = mid_row_metrics(row);
 
-                    f64::from(count_metrics).mul_add(scale, score_metrics.into())
+                    f64::from(score_metrics).mul_add(scale, count_metrics.into())
                 })
                 .sum();
 
@@ -229,7 +229,7 @@ fn eval_board(
                     let row = (board >> i) as u16;
                     let (score_metrics, count_metrics) = edge_row_metrics(row);
 
-                    f64::from(count_metrics).mul_add(scale, score_metrics.into())
+                    f64::from(score_metrics).mul_add(scale, count_metrics.into())
                 })
                 .sum();
 
@@ -258,7 +258,7 @@ fn eval_fitness(
         loss_weight,
     }: Weights,
 ) -> f64 {
-    let mut ai = ExpectimaxAi::new(1, loss_weight, |board| {
+    let mut ai = ExpectimaxAi::new(0.14, loss_weight, |board| {
         eval_board(
             mid_score_weight,
             edge_score_weight,

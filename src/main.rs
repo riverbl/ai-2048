@@ -28,7 +28,7 @@ use lib_2048::{
 
 mod render;
 
-const LOSS_WEIGHT: f64 = -3.9652309010456945;
+const LOSS_WEIGHT: f64 = -5.064093733670401;
 
 fn play_interactive(
     out: &mut (impl AsRawFd + Write),
@@ -230,13 +230,13 @@ where
 fn main() -> io::Result<()> {
     enum Mode {
         Interactive,
-        Expectimax(u32),
+        Expectimax(f64),
         MonteCarlo(u32),
         Random,
-        BenchExpectimax(u32),
+        BenchExpectimax(f64),
         BenchMonteCarlo(u32),
         BenchRandom,
-        RandomBenchExpectimax(u32, u32),
+        RandomBenchExpectimax(u32, f64),
     }
 
     let mut stdout = io::stdout().lock();
@@ -246,12 +246,12 @@ fn main() -> io::Result<()> {
 
     let mode = match args.as_slice() {
         [] => Mode::Interactive,
-        [arg, depth_str] if arg == "-e" => {
-            let Ok(depth) = depth_str.parse() else {
-                return writeln!(stdout, "Invalid depth {depth_str}");
+        [arg, probability_cutoff_str] if arg == "-e" => {
+            let Ok(probability_cutoff) = probability_cutoff_str.parse() else {
+                return writeln!(stdout, "Invalid probability cutoff {probability_cutoff_str}");
             };
 
-            Mode::Expectimax(depth)
+            Mode::Expectimax(probability_cutoff)
         }
         [arg, iterations_str] if arg == "-m" => {
             let Ok(iterations) = iterations_str.parse() else {
@@ -261,12 +261,12 @@ fn main() -> io::Result<()> {
             Mode::MonteCarlo(iterations)
         }
         [arg] if arg == "-r" => Mode::Random,
-        [arg, depth_str] if arg == "--be" => {
-            let Ok(depth) = depth_str.parse() else {
-                return writeln!(stdout, "Invalid depth {depth_str}");
+        [arg, probability_cutoff_str] if arg == "--be" => {
+            let Ok(probability_cutoff) = probability_cutoff_str.parse() else {
+                return writeln!(stdout, "Invalid probability cutoff {probability_cutoff_str}");
             };
 
-            Mode::BenchExpectimax(depth)
+            Mode::BenchExpectimax(probability_cutoff)
         }
         [arg, iterations_str] if arg == "--bm" => {
             let Ok(iterations) = iterations_str.parse() else {
@@ -276,25 +276,25 @@ fn main() -> io::Result<()> {
             Mode::BenchMonteCarlo(iterations)
         }
         [arg] if arg == "--br" => Mode::BenchRandom,
-        [arg, count_str, depth_str] if arg == "--rbe" => {
+        [arg, count_str, probability_cutoff_str] if arg == "--rbe" => {
             let Ok(count) = count_str.parse() else {
                 return writeln!(stdout, "Invalid count {count_str}");
             };
 
-            let Ok(depth) = depth_str.parse() else {
-                return writeln!(stdout, "Invalid depth {depth_str}");
+            let Ok(probability_cutoff) = probability_cutoff_str.parse() else {
+                return writeln!(stdout, "Invalid probability cutoff {probability_cutoff_str}");
             };
 
-            Mode::RandomBenchExpectimax(count, depth)
+            Mode::RandomBenchExpectimax(count, probability_cutoff)
         }
         _ => return writeln!(stdout, "Invalid arguments"),
     };
 
     match mode {
         Mode::Interactive => play_interactive(&mut stdout, &mut stdin, ChaCha8Rng::from_entropy()),
-        Mode::Expectimax(depth) => play_ai(
+        Mode::Expectimax(probability_cutoff) => play_ai(
             &mut stdout,
-            ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
+            ExpectimaxAi::new(probability_cutoff, LOSS_WEIGHT, logic::eval_metrics),
             ChaCha8Rng::from_entropy(),
         ),
         Mode::MonteCarlo(iterations) => play_ai(
@@ -307,10 +307,10 @@ fn main() -> io::Result<()> {
             RandomAi::new(ChaCha8Rng::from_entropy()),
             ChaCha8Rng::from_entropy(),
         ),
-        Mode::BenchExpectimax(depth) => {
+        Mode::BenchExpectimax(probability_cutoff) => {
             bench_ai_from_seeds(&mut stdout, rng_seeds::SEEDS, |[seed, _]| {
                 (
-                    ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
+                    ExpectimaxAi::new(probability_cutoff, LOSS_WEIGHT, logic::eval_metrics),
                     ChaCha8Rng::from_seed(seed),
                 )
             })
@@ -327,10 +327,10 @@ fn main() -> io::Result<()> {
 
             (RandomAi::new(ai_rng), game_rng)
         }),
-        Mode::RandomBenchExpectimax(count, depth) => {
+        Mode::RandomBenchExpectimax(count, probability_cutoff) => {
             let init_iter = (0..count).map(|_| ChaCha8Rng::from_entropy()).map(|rng| {
                 (
-                    ExpectimaxAi::new(depth, LOSS_WEIGHT, logic::eval_metrics),
+                    ExpectimaxAi::new(probability_cutoff, LOSS_WEIGHT, logic::eval_metrics),
                     rng,
                 )
             });
